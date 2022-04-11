@@ -1,0 +1,14 @@
+---
+
+  - name: Collect DS Instances
+    ds.ansible_ds.ds_info:
+        prefix: "{{ lookup('env', 'PREFIX') | default('', True) }}"
+    register: result
+  - name: "Set variables"
+    set_fact:
+      dsinstances: "{{ result.my_useful_info.instances }}"
+
+  - name: Debug
+    ansible.builtin.debug:
+      msg:
+        - Result is {{ dsinstances }}

@@ -1,0 +1,15 @@
+---
+- hosts: localhost
+  collections:
+    - my_namespace.first_collection
+
+  roles:
+    - install_dspkg
+    - info_dsinst
+
+#  tasks:
+#    - name: debug
+#      debug:
+#        msg: 
+#         - "Ici" 
+#
