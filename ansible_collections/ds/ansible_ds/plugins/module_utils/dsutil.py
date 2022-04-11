@@ -1,13 +1,98 @@
-#!/usr/bin/python3
-
 # --- BEGIN COPYRIGHT BLOCK ---
-# Copyright (C) 2020 Red Hat, Inc.
+# Copyright (C) 2022 Red Hat, Inc.
 # All rights reserved.
 #
-# License: GPL (version 3 or any later version).
-# See LICENSE for details.
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 # --- END COPYRIGHT BLOCK ---
 #
+
+DOCUMENTATION = r'''
+---
+module: dsentities
+
+short_description: This module provides utility classes and function
+
+version_added: "1.0.0"
+
+description:
+short_description: This module provides utility classes and function
+    - NormalizedDict class:   a dict whose keys are normalized
+    - Option class:
+    - DSEOption class:
+    - ConfigOption class:
+    - SpecialOption class:
+    - OptionAction class:
+    - MyYAMLObject class:     the generic class for ds389 entities
+    - YAMLHost class:         the MyYAMLObject class associated with the root entity: (local host)
+    - YAMLInstance class:     the MyYAMLObject class associated with a ds389 instance
+    - YAMLBackend class:      the MyYAMLObject class associated with a backend
+    - YAMLIndex class:        the MyYAMLObject class associated with an index
+    - Entry class:            the class storing an ldap entry within ansible-ds
+    - DiffResult class:       the class used to store dse.ldif differences
+    - DSE class:              a class allowing to compare dse.ldif files
+
+from dataclasses import dataclass
+# dse.ldif important object classes
+@dataclass
+class NormalizedDict(dict, yaml.YAMLObject):
+class LdapOp(yaml.YAMLObject):
+class Entry:
+    def hasObjectclass(self, c):
+        return self.hasValue('objectclass', c)
+class DiffResult:
+class DSE:
+        self.class2dn = {}                    # class -> dn map
+            self.class2dn[c] = []
+        self.class2dn['other'] = []
+            found_class = 'other'
+                if e.hasObjectclass(c) is True:
+                    found_class = c
+            self.class2dn[found_class].append(e.getNDN())
+from dataclasses import dataclass
+# dse.ldif important object classes
+@dataclass
+class NormalizedDict(dict, yaml.YAMLObject):
+class LdapOp(yaml.YAMLObject):
+class Entry:
+    def hasObjectclass(self, c):
+        return self.hasValue('objectclass', c)
+class DiffResult:
+class DSE:
+        self.class2dn = {}                    # class -> dn map
+            self.class2dn[c] = []
+        self.class2dn['other'] = []
+            found_class = 'other'
+                if e.hasObjectclass(c) is True:
+                    found_class = c
+            self.class2dn[found_class].append(e.getNDN())
+
+from dataclasses import dataclass
+# dse.ldif important object classes
+@dataclass
+class NormalizedDict(dict, yaml.YAMLObject):
+class LdapOp(yaml.YAMLObject):
+class Entry:
+    def hasObjectclass(self, c):
+        return self.hasValue('objectclass', c)
+class DiffResult:
+class DSE:
+        self.class2dn = {}                    # class -> dn map
+            self.class2dn[c] = []
+        self.class2dn['other'] = []
+            found_class = 'other'
+                if e.hasObjectclass(c) is True:
+                    found_class = c
+            self.class2dn[found_class].append(e.getNDN())
+
+author:
+    - Pierre Rogier (@progier389)
+
+requirements:
+    - python >= 3.9
+    - python3-lib389 >= 2.2
+    - 389-ds-base >= 2.2
+'''
+
 
 import sys
 import os
