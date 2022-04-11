@@ -18,19 +18,16 @@ version_added: "1.0.0"
 
 description:
     - NormalizedDict class:   a dict whose keys are normalized
-    - Option class:
-    - DSEOption class:
-    - ConfigOption class:
-    - SpecialOption class:
-    - OptionAction class:
+    - Option class:           class handling ansible-ds parameters for each YAMLObject
+    - DSEOption class:        class handling the Option associated with ds389 parameters that are in dse.ldif
+    - ConfigOption class:     class handling the Option associated with ds389 parameters that are in dscreate template file
+    - SpecialOption class:    class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
+    - OptionAction class:     utility class used to perform action on an Option
     - MyYAMLObject class:     the generic class for ds389 entities
     - YAMLHost class:         the MyYAMLObject class associated with the root entity: (local host)
     - YAMLInstance class:     the MyYAMLObject class associated with a ds389 instance
     - YAMLBackend class:      the MyYAMLObject class associated with a backend
     - YAMLIndex class:        the MyYAMLObject class associated with an index
-    - Entry class:            the class storing an ldap entry within ansible-ds
-    - DiffResult class:       the class used to store dse.ldif differences
-    - DSE class:              a class allowing to compare dse.ldif files
 
 author:
     - Pierre Rogier (@progier389)
@@ -41,8 +38,6 @@ requirements:
     - 389-ds-base >= 2.2
 '''
 
-
-import sys
 import os
 import re
 import json
@@ -55,172 +50,16 @@ import socket
 import random
 from shutil import copyfile
 from tempfile import TemporaryDirectory
-from configparser import ConfigParser
-from lib389 import DirSrv
-from lib389.index import Index
-from lib389.dseldif import DSEldif
-from lib389.backend import Backend
-from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
-from lib389.instance.setup import SetupDs
-from lib389.cli_base import setup_script_logger
-from lib389.instance.options import General2Base, Slapd2Base, Backend2Base
-from ldap.ldapobject import SimpleLDAPObject
-from argparse import Namespace
+from .dsutil import NormalizedDict
 
-args = Namespace(a=1, b='c')
 
-CLASSES = (
-    'directoryserverfeature',
-    'nsaccount',
-    'nsbackendinstance',
-    'nscontainer',
-    'nsencryptionconfig',
-    'nsencryptionmodule',
-    'nsindex',
-    'nsmappingtree',
-    'nssaslmapping',
-    'nsschemapolicy',
-    'nsslapdconfig',
-    'nsslapdplugin',
-    'nssnmp',
-    'pamconfig',
-    'rootdnpluginconfig'
-)
 
-IGNOREATTRS = ( 'creatorsName', 'modifiersName',
-                'createTimestamp', 'modifyTimestamp', 'numSubordinates',
-                'nsslapd-plugindescription', 'nsslapd-pluginid',
-                'nsslapd-pluginvendor', 'nsslapd-pluginversion',
-                'nsstate',
-              )
 
 
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
 
-log = None
 
-def SetLogger(name, verbose=0):
-    global log
-    """Reset the python logging system for STDOUT, and attach a new
-    console logger with cli expected formatting.
-
-    :param name: Name of the logger
-    :type name: str
-    :param verbose: Enable verbose format of messages
-    :type verbose: bool
-    :return: logging.logger
-    """
-    root = logging.getLogger()
-    log = logging.getLogger(name)
-    log_handler = logging.StreamHandler(sys.stderr)
-
-    if verbose:
-        verbose = logging.DEBUG
-    else:
-        verbose = logging.INFO
-    log.setLevel(verbose)
-    log_format = '%(levelname)s: %(message)s'
-
-    log_handler.setFormatter(logging.Formatter(log_format))
-    root.addHandler(log_handler)
-
-
-
-class NormalizedDict(dict, yaml.YAMLObject):
-    ### A dict with normalized key  stored in hash table 
-    ### Note: The original version of the key (or the first one
-    ### in case of duplicates) is returned when walking the dict
-    yaml_tag = u'tag:yaml.org,2002:map'
-
-    def __init__(self, *args):
-        self.dict = {}         # The map: original-key --> value
-        self.norm2keys = {}    # The map: normalized-key --> original-key
-
-    def __getstate__(self):
-        return { ** self.dict }
-
-    def normalize(self, key):
-        nkey = None
-        if key:
-            nkey = ensure_str(key).lower()
-            if re.match("^[a-z][a-z0-9-]* *= .*", nkey):
-                nkey = normalizeDN(key)
-        return nkey
-
-    def get(self, key):
-        return self[key]
-
-    def update(self, key, value):
-        self[key] = value
-
-    def has_key(self, key):
-        nk = self.normalize(key)
-        return self.normalize(key) in self.norm2keys
-
-    def keys(self):
-        return dict.keys(self.dict)
-
-    def __next__(self):
-        return dict.__next__(self.dict)
-
-    def __iter__(self):
-        return dict.__iter__(self.dict)
-
-    def items(self):
-        return dict.items(self.dict)
-
-    def values(self):
-        return dict.values(self.dict)
-
-    def __setitem__(self, key, value):
-        nk = self.normalize(key)
-        if nk not in self.norm2keys:
-            self.norm2keys[nk] = key
-        self.dict[self.norm2keys[nk]] = value
-
-    def __repr__(self):
-        return str(self.dict)
-
-    def __getitem__(self, key):
-        return self.dict[self.norm2keys[self.normalize(key)]]
-
-    def __delitem__(self, key):
-        nk = self.normalize(key)
-        fk = self.norm2keys[nk]
-        del self.norm2keys[nk]
-        del self.dict[fk]
-
-    def clear(self):
-        self.dict.clear()
-        self.norm2keys.clear()
-
-    def copy(self):
-        newDict = NormalizedDict()
-        newDict.dict = self.dict.copy()
-        newDict.norm2keys = self.norm2keys.copy()
-
-    def pop(self, key, *args):
-        try:
-            val = self[key]
-            self.__delitem__(key)
-        except KeyError as e: 
-            if len(args) == 0:
-                raise e
-            else:
-                val = args[0]
-        return val
-
-# Following methods are inherited from dict:
-#
-#fromkeys()	Returns a dictionary with the specified keys and value
-#items()	Returns a list containing a tuple for each key value pair
-#keys()	Returns a list containing the dictionary's keys
-#popitem()	Removes the last inserted key-value pair
-#setdefault()	Returns the value of the specified key. If the key does not exist: insert the key, with the specified value
-#values()	Returns a list of all the values in the dictionary
-#
-
-
+# class handling ansible-ds parameters for each YAML Object
 class Option:
     def __init__(self, name, desc):
         self.name = name
@@ -240,6 +79,7 @@ class Option:
     def _get_action(self, target, facts, vfrom, vto):
         return []
 
+# class handling the Option associated with ds389 parameters that are in dse.ldif 
 class DSEOption(Option):
     def __init__(self, dsename, dsedn, vdef, desc):
         name = dsename.replace("-", "_").lower()
@@ -266,19 +106,20 @@ class DSEOption(Option):
         elif action2perform == OptionAction.CONFIG:
             val = action.getValue()
             log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
-            if val:
+            if val is not None:
                 action.target._infConfig['slapd'][option.name] = str(val)
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
             if dsedn:
                 action.target.addModifier(option.dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
 
-
+# class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
     def __init__(self, name, dsename, dsedn, vdef, desc):
         DSEOption.__init__(self, name, dsedn, vdef, desc)
         self.dsename = dsename
 
+# class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
     def __init__(self, name, prio, desc):
         Option.__init__(self, name, desc)
@@ -290,7 +131,7 @@ class SpecialOption(Option):
         func = getattr(target, funcName)
         return ( OptionAction(self, target, facts, vfrom, vto, func), )
 
-
+# utility class used to perform action on an Option
 class OptionAction:
     CONFIG="infFileConfig"   # Store value in ConfigParser Object
     DEFAULT="default"        # Get default value
@@ -322,7 +163,7 @@ class OptionAction:
         assert type in OptionAction.TYPES
         return self.func(action=self, action2perform=type)
 
-
+# class representong the enties like instance, backends, indexes, ...
 class MyYAMLObject(yaml.YAMLObject):
     yaml_loader = yaml.SafeLoader
     PARAMS = {
@@ -736,7 +577,8 @@ class YAMLInstance(MyYAMLObject):
 
         ### Now determine what has changed compared to the default entry
         defaultdse = self.getDefaultDSE()
-        result = dse.diff(defaultdse)
+        result = DiffResult()
+        result.diff(dse.getEntryDict(), defaultdse.getEntryDict())
         result = self.filterDiff(result)
         self.setOption('dseMods', result.toYaml())
 
@@ -757,6 +599,7 @@ class YAMLInstance(MyYAMLObject):
             if isinstance(action.option, ConfigOption):
                 action.perform(OptionAction.CONFIG)
         s = SetupDs(log=log)
+        config.write(sys.stdout)
         general, slapd, backends = s._validate_ds_config(config)
         s.create_from_args(general, slapd, backends)
         inst = DirSrv()
@@ -772,6 +615,14 @@ class YAMLInstance(MyYAMLObject):
         dirsrv.delete()
         self._isDeleted = True
 
+    def get2ports(self):
+        # Return 2 free tcp port numbers 
+        with socket.create_server(('localhost', 0)) as s1:
+            host1, port1 = s1.getsockname()
+            with socket.create_server(('localhost', 0)) as s2:
+                host2, port2 = s2.getsockname()
+                return (port1, port2)
+
     def getDefaultDSE(self):
         defaultDSE = getattr(self, "_defaultDSE", None)
         if defaultDSE:
@@ -780,10 +631,9 @@ class YAMLInstance(MyYAMLObject):
         defaultglobalDSEpath = self.getPath(self.GLOBAL_DSE_PATH)
         if not os.access(defaultglobalDSEpath, os.F_OK):
             ### If it does not exists then create a dummy instance
-            dummyInstance = YAMLInstance('ansible-default')
+            dummyInstance = YAMLInstance('ansible-default', YAMLHost())
             dummyInstance.started = False
-            dummyInstance.port = 0
-            dummyInstance.secure_port = 0
+            dummyInstance.port, dummyInstance.secure_port = self.get2ports()
             dummyInstance.secure = 'on'
             dummyInstance.self_sign_cert = True
             dummydirSrv = dummyInstance.create()
@@ -1051,236 +901,4 @@ class YAMLIndex(MyYAMLObject):
                 dn = action.target.getPath(YAMLIndex.IDXDN)
                 idx = Index(inst.getDirSrv(), dn=dn)
                 idx.delete()
-
-class Entry:
-    def __init__(self, dn, attributes):
-        self._dn = dn
-        self._ndn = normalizeDN(dn)
-        self._attrs = NormalizedDict()  #  attr ==> ( [ vals ...], [ normalizedvals ... ] )
-        for attr, vals in attributes.items():
-            attrnvals = []
-            for val in vals:
-                attrnvals.append( self.normalize(ensure_str(val)) )
-            self._attrs[attr] = ( vals, attrnvals )
-
-    def getDN(self):
-        return self._dn
-
-    def getNDN(self):
-        return self._ndn
-
-    def normalize(self, val):
-        return self._attrs.normalize(ensure_str(val))
-
-    def getAttributes(self):
-        return self._attrs.keys()
-
-    def hasValue(self, attr, val):
-        if self._attrs.has_key(attr):
-            return self.normalize(val) in self._attrs[attr][1]
-        return False
-
-    def hasAttr(self, attr):
-        return self._attrs.has_key(attr)
-
-    def hasObjectclass(self, c):
-        return self.hasValue('objectclass', c)
-
-    def __repr__(self):
-        return f"Entry({self._dn}, {self._attrs})"
-
-    def get(self, attr):
-        if self._attrs.has_key(attr):
-            return self._attrs[attr][0]
-        return None
-
-    def getSingleValue(self, attr):
-        val = self.get(attr)
-        if not val:
-            return None
-        assert len(val) == 1
-        return ensure_str(val[0])
-
-    def getNormalizedValues(self, attr):
-        if self._attrs.has_key(attr):
-            self._attrs[attr][1].sort()
-            return self._attrs[attr][1]
-        return None
-
-    def hasSameAttributes(self, entry, attrlist=None):
-        if attrlist is None:
-            return self._attrs == entry._attrs
-        for attr in attrlist:
-            if self.getNormalizedValues(attr) != entry.getNormalizedValues(attr):
-                return False
-        return True
-
-
-class DiffResult:
-    ADDENTRY = "addEntry"
-    DELETEENTRY = "deleteEntry"
-    ADDVALUE = "addValue"
-    DELETEVALUE = "deleteValue"
-    REPLACEVALUE = "replaceValue"
-    ACTIONS = ( ADDENTRY, DELETEENTRY, ADDVALUE, DELETEVALUE, REPLACEVALUE)
-
-    def __init__(self):
-        self.result = NormalizedDict()
-
-    def toYaml(self):
-        return self.result
-
-    def __str__(self):
-        return str(self.result)
-
-    def getDict(dict, key):
-        if not dict.has_key(key):
-            dict[key] = NormalizedDict()
-        return dict[key]
-
-    def getList(dict, key):
-        if not dict.has_key(key):
-            dict[key] = []
-        return dict[key] 
-
-    def addModifier(dict, dn, action, attr, val):
-        assert (action in DiffResult.ACTIONS)
-        DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), attr).append(ensure_str(val))
-
-    def addAction(self, action, dn, attr, val):
-        # result = { dn : { action: { attr : [val] } } }
-        DiffResult.addModifier(self.result, dn, action, attr, val)
-
-    def match(dn, pattern_list, flags=0):
-        for pattern in pattern_list:
-            m = re.match(pattern.replace('\\', '\\\\'), dn, flags)
-            if m:
-                return True
-        return False
-
-    def cloneDN(self, fromDict, dn):
-        for action in fromDict[dn]:
-            for attr in fromDict[dn][action]:
-                self.addAction(action, dn, attr, None)
-                self.result[dn][action][attr] = fromDict[dn][action][attr][:]
-
-    def getSingleValuedValue(self, dn, attr):
-        op = None
-        val = None
-        if dn and attr:
-            for action in DiffResult.ACTIONS:
-                if self.result.has_key(dn) and self.result[dn].has_key(action) and self.result[dn][action].has_key(attr):
-                    assert len(self.result[dn][action][attr]) == 1
-                    return (action, self.result[dn][action][attr][0])
-        return (None, None)
-
-
-class DSE:
-    def __init__(self, dsePath):
-        self.dsePath = dsePath;
-        # Count entries in dse.ldif
-        nbentries = 0
-        with open(dsePath, 'r') as f:
-            for line in f:
-                if line.startswith('dn:'):
-                    nbentries = nbentries + 1
-        # Parse dse.ldif
-        with open(dsePath, 'r') as f:
-            dse_parser = ldif.LDIFRecordList(f, ignored_attr_types=IGNOREATTRS, max_entries=nbentries)
-            if dse_parser is None:
-                return
-            dse_parser.parse()
-        # And generap the entries maps
-        dse = dse_parser.all_records
-        self.dn2entry = NormalizedDict()      # dn --> entry map
-        self.class2dn = {}      # class -> dn map
-        for c in CLASSES:
-            self.class2dn[c] = []
-        self.class2dn['other'] = []
-        entryid = 1
-        for dn, entry in dse:
-            e = Entry(dn, entry)
-            e.id = entryid
-            entryid = entryid + 1
-            self.dn2entry[e.getNDN()] = e
-            found_class = 'other'
-            for c in CLASSES:
-                if e.hasObjectclass(c) is True:
-                    found_class = c
-            self.class2dn[found_class].append(e.getNDN())
-
-    def fromLines(lines):
-        ### Transform list of lines into DSE
-        with TemporaryDirectory() as tmp:
-            dsePath = os.path.join(tmp, 'dse.ldif')
-            with open(dsePath, 'w') as f:
-                f.write(lines)
-            return DSE(dsePath)
-
-    def __repr__(self):
-        return str(self.dn2entry)
-
-    def getEntry(self, dn):
-        if self.dn2entry.has_key(dn):
-            return self.dn2entry[dn]
-        else:
-            return None
-
-    def getSingleValue(self, dn, attr):
-        entry = self.getEntry(dn)
-        if entry:
-            return entry.getSingleValue(attr)
-        return None
-
-    def diffAttr(self, result, attr, e1, e2):
-        if e1 is None: 
-            a1 = None
-        else:
-            a1 = attr
-        if e2 is None: 
-            a2 = None
-        else:
-            a2 = attr
-        if a1 is None:
-            result.addAction(DiffResult.DELETEVALUE, e2.getDN(), attr, None)
-            return
-        if a2 is None:
-            for val in e1.attrdict[attr]:
-                result.addAction(DiffResult.ADDVALUE, e1.getDN(), e1.attrnames[attr], val)
-            return
-        if a1 != a2:
-            if (len(a1) == 1 and len(a2) == 1):
-                val = e1.get(attr)
-                result.addAction(DiffResult.REPLACEVALUE, e1.getDN(), e1.attrnames[attr], val)
-                return
-            for val in e1.get(attr):
-                if not e2.hasValue(attr, val):
-                    result.addAction(DiffResult.ADDVALUE, e1.getDN(), e1.attrnames[attr], val)
-            for val in e2.get(attr):
-                if not e1.hasValue(attr, val):
-                    result.addAction(DiffResult.DELETEVALUE, e1.getDN(), e1.attrnames[attr], val)
-
-    def diffEntry(self, result, e1, e2):
-        if e1 is None:
-            result.addAction(DiffResult.DELETEENTRY, e2.getDN(), None, None)
-            return
-        if e2 is None:
-            for attr in e1.getAttributes():
-                for val in e1.get(attr):
-                    result.addAction(DiffResult.ADDENTRY, e1.getDN(), attr, val)
-            return
-        for attr in e1.getAttributes():
-            self.diffAttr(result, attr, e1, e2)
-        for attr in e2.getAttributes():
-            if not e1.hasAttr(attr):
-                self.diffAttr(result, attr, None, e2)
-
-    def diff(self, dse2):
-        result = DiffResult()
-        for dn in self.dn2entry:
-            self.diffEntry(result, self.dn2entry[dn], dse2.getEntry(dn))
-        for dn in dse2.dn2entry:
-            if not self.dn2entry.has_key(dn):
-                self.diffEntry(result, None, dse2.getEntry(dn))
-        return result
 
