@@ -1,13 +1,46 @@
 #!/usr/bin/python3
 
 # --- BEGIN COPYRIGHT BLOCK ---
-# Copyright (C) 2020 Red Hat, Inc.
+# Copyright (C) 2022 Red Hat, Inc.
 # All rights reserved.
 #
-# License: GPL (version 3 or any later version).
-# See LICENSE for details.
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 # --- END COPYRIGHT BLOCK ---
 #
+
+DOCUMENTATION = r'''
+---
+module: dsentities
+
+short_description: This module provides utility classes and function for handling ds389 entities
+
+version_added: "1.0.0"
+
+description:
+    - NormalizedDict class:   a dict whose keys are normalized
+    - Option class:
+    - DSEOption class:
+    - ConfigOption class:
+    - SpecialOption class:
+    - OptionAction class:
+    - MyYAMLObject class:     the generic class for ds389 entities
+    - YAMLHost class:         the MyYAMLObject class associated with the root entity: (local host)
+    - YAMLInstance class:     the MyYAMLObject class associated with a ds389 instance
+    - YAMLBackend class:      the MyYAMLObject class associated with a backend
+    - YAMLIndex class:        the MyYAMLObject class associated with an index
+    - Entry class:            the class storing an ldap entry within ansible-ds
+    - DiffResult class:       the class used to store dse.ldif differences
+    - DSE class:              a class allowing to compare dse.ldif files
+
+author:
+    - Pierre Rogier (@progier389)
+
+requirements:
+    - python >= 3.9
+    - python3-lib389 >= 2.2
+    - 389-ds-base >= 2.2
+'''
+
 
 import sys
 import os

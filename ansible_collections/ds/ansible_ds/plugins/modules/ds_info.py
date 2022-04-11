@@ -1,11 +1,11 @@
 #!/usr/bin/python3
+# -*- coding: utf-8 -*
 
 # --- BEGIN COPYRIGHT BLOCK ---
 # Copyright (C) 2022 Red Hat, Inc.
 # All rights reserved.
 #
-# License: GPL (version 3 or any later version).
-# See LICENSE for details.
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 # --- END COPYRIGHT BLOCK ---
 #
 
@@ -20,7 +20,8 @@ short_description: This imodule provides info on the ldap server instances avail
 
 version_added: "1.0.0"
 
-description: This is my longer description explaining my test info module.
+description:
+    - This module allow to collect the state of all the ds389 (or RHDS) instances on the local host.
 
 options:
     prefix:
@@ -30,6 +31,12 @@ options:
 
 author:
     - Pierre Rogier (@progier389)
+
+requirements:
+    - python >= 3.9
+    - python3-lib389 >= 2.2
+    - python3-lib389 patch from https://github.com/389ds/389-ds-base/pull/5253
+    - 389-ds-base >= 2.2
 '''
 
 EXAMPLES = r'''
@@ -102,6 +109,7 @@ log=None
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
 
 
+# class handling ansible-ds parameters for each YAML Object
 class Option:
     def __init__(self, name, desc):
         self.name = name
@@ -121,6 +129,7 @@ class Option:
     def _get_action(self, target, facts, vfrom, vto):
         return []
 
+# class handling the Option associated with ds389 parameters that are in dse.ldif 
 class DSEOption(Option):
     def __init__(self, dsename, dsedn, vdef, desc):
         name = dsename.replace("-", "_").lower()
@@ -154,12 +163,13 @@ class DSEOption(Option):
             if dsedn:
                 action.target.addModifier(option.dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
 
-
+# class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
     def __init__(self, name, dsename, dsedn, vdef, desc):
         DSEOption.__init__(self, name, dsedn, vdef, desc)
         self.dsename = dsename
 
+# class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
     def __init__(self, name, prio, desc):
         Option.__init__(self, name, desc)
@@ -171,7 +181,7 @@ class SpecialOption(Option):
         func = getattr(target, funcName)
         return ( OptionAction(self, target, facts, vfrom, vto, func), )
 
-
+# utility class used to perform action on an Option
 class OptionAction:
     CONFIG="infFileConfig"   # Store value in ConfigParser Object
     DEFAULT="default"        # Get default value
@@ -203,7 +213,7 @@ class OptionAction:
         assert type in OptionAction.TYPES
         return self.func(action=self, action2perform=type)
 
-
+# class representong the enties like instance, backends, indexes, ...
 class MyYAMLObject(yaml.YAMLObject):
     yaml_loader = yaml.SafeLoader
     PARAMS = {
