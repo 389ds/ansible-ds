@@ -39,8 +39,9 @@ class AnsibleTest:
         os.environ['PYTHONPATH'] = ":".join(sys.path)
         # should spawn a subprocess rather than importing the module and calls run_module
         # (because run_module calls sys.exit which break pytest framework)
-        result = subprocess.run([cmd], encoding='utf8', text=True, input=stdinText, capture_output=True, check=True)
+        result = subprocess.run([cmd], encoding='utf8', text=True, input=stdinText, capture_output=True, check=False)
         self.log.info(f'Module {cmd} returned stdin: {result.stdout} stderr: {result.stderr}')
+        assert result.returncode==0 or result.returncode==1
         self.result = json.loads(result.stdout)
         return self.result
 
@@ -48,21 +49,15 @@ class AnsibleTest:
         return [ instance['name'] for instance in result['my_useful_info']['instances'] ]
 
     def getInstanceAttr(self, instname, attr):
-        for instance in self.result['my_useful_info']['instances']:
-            if instance['name'] == instname:
-                return instance[attr]
-        raise KeyError(f'Instance {instname} not found.')
+        return self.result['my_useful_info']['instances'][instname][attr]
 
     def listBackends(self, instname):
         backends = self.getInstanceAttr(instname, 'backends')
-        return [ backend['name'] for backend in backends ]
+        return [ backends.keys() ]
 
     def getBackendAttr(self, instname, bename, attr):
         backends = self.getInstanceAttr(instname, 'backends')
-        for backend in backends:
-            if backend['name'] == bename:
-                return backend[attr]
-        raise KeyError(f'Backend {bename} not found in instance {instname}.')
+        return backends[bename][attr]
 
 @pytest.fixture(scope='function')
 def ansibletest(caplog):
