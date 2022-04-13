@@ -68,50 +68,28 @@ my_useful_info:
     }
 '''
 
-from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.basic import AnsibleModule, env_fallback
 from pathlib import Path
 import sys
-
 import os
-import re
 import json
-import glob
-import ldif
-import ldap
-import logging
-import yaml
-import socket
-import random
-from shutil import copyfile
-from tempfile import TemporaryDirectory
-from configparser import ConfigParser
-from lib389 import DirSrv
-from lib389.index import Index
-from lib389.dseldif import DSEldif
-from lib389.backend import Backend
-from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
-from lib389.instance.setup import SetupDs
-from lib389.cli_base import setup_script_logger
-from lib389.instance.options import General2Base, Slapd2Base, Backend2Base
-from ldap.ldapobject import SimpleLDAPObject
-from argparse import Namespace
+import traceback
 
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
-    from module_utils.dsutil import log, setLogger, NormalizedDict, LdapOp, Entry, getLogger, toAnsibleResult, DSE, DiffResult
     from module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLHost, YAMLInstance, YAMLBackend, YAMLIndex
+    from module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
 else:
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import log, setLogger, NormalizedDict, LdapOp, Entry, getLogger, toAnsibleResult, DSE, DiffResult
     from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLHost, YAMLInstance, YAMLBackend, YAMLIndex
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
 
 
-log=None
 
 
 def run_module():
     # define available arguments/parameters a user can pass to the module
     module_args = dict(
-        prefix=dict(type='path', required=False),
+        prefix=dict(type='path', required=False, fallback=(env_fallback, ['PREFIX', 'INSTALL_PREFIX'])),
     )
 
     # seed the result dict in the object
@@ -155,13 +133,18 @@ def run_module():
     log = getLogger()
 
     ### Create the main "Host" node containing this host instances
-    host = YAMLHost()
-    host.getFacts() 
+    try:
+        host = YAMLHost()
+        host.getFacts() 
+    except Exception as e:
+        print(traceback.format_exc(), file=sys.stderr)
+        module.fail_json(f'Failed to determine the ds389 instances state. error is {e}')
+        return
     result['message'] = 'goodbye'
     result['my_useful_info'] = {
         **toAnsibleResult(host)
     }
-    # in the event of a successful module execution, you will want to
+    #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     log.debug(json.dumps({**result}, sort_keys=True, indent=4))
     module.exit_json(**result)

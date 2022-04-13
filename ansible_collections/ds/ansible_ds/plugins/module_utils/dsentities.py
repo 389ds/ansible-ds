@@ -44,19 +44,22 @@ import json
 import glob
 import ldif
 import ldap
-import logging
 import yaml
 import socket
 import random
 from shutil import copyfile
 from tempfile import TemporaryDirectory
-from .dsutil import NormalizedDict
+from lib389 import DirSrv
+from lib389.dseldif import DSEldif
+from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
 
-
-
+from configparser import ConfigParser
+from .dsutil import NormalizedDict, DSE, DiffResult, getLogger
 
 
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
+
+log = None
 
 
 # class handling ansible-ds parameters for each YAML Object
@@ -181,10 +184,12 @@ class MyYAMLObject(yaml.YAMLObject):
     )
 
     def __init__(self, name, parent=None):
+        global log
+        log = getLogger()
         self.name = name
         self.state = "present"
         for child in self.CHILDREN:
-            self.__dict__[child] = []
+            self.__dict__[child] = {}
         self._children = []
         self._parent = parent
         self.setCtx()
@@ -278,9 +283,9 @@ class MyYAMLObject(yaml.YAMLObject):
         for c in self.CHILDREN:
             self._children.append(c)
             if not c in dict:
-                self.setOption(c, [])
-                dict[c] = []
-            for c2 in dict[c]:
+                self.setOption(c, {})
+                dict[c] = {}
+            for c2 in dict[c].values():
                 log.debug(f"Validate {self.getClass()}(name={self.name}) children is {c2.getClass()}(name={c2.name})")
                 c2.validate()
                 c2._parent = self
@@ -390,7 +395,7 @@ class YAMLHost(MyYAMLObject):
             m = re.match(f'.*/slapd-([^/]*)/dse.ldif$', f)
             ### Then creates the Instance Objects
             instance = YAMLInstance(m.group(1), parent=self)
-            self.instances.append(instance)
+            self.instances[instance.name] = instance
             ### And populate them
             instance.getFacts()
 
@@ -499,7 +504,7 @@ class YAMLInstance(MyYAMLObject):
         ignore_dns = []
         for dns in ( ):
             ignore_dns.append(dns)
-        for be in self.backends:
+        for be in self.backends.values():
             bename = be.name
             ignore_dns.append(f'.*cn={bename},cn=ldbm database,cn=plugins,cn=config')
             try:
@@ -572,7 +577,7 @@ class YAMLInstance(MyYAMLObject):
                 m = re.match('cn=([^,]*),cn=ldbm database,cn=plugins,cn=config', dn)
                 if m:
                     backend = YAMLBackend(m.group(1), parent=self)
-                    self.backends.append(backend)
+                    self.backends[backend.name] = backend
                     backend.getFacts()
 
         ### Now determine what has changed compared to the default entry
@@ -795,7 +800,7 @@ class YAMLBackend(MyYAMLObject):
                 if self.is_default_index(m.group(1), entry) is False:
                     index = YAMLIndex(m.group(1), parent=self)
                     index._beentrydn = dn
-                    self.indexes.append(index)
+                    self.indexes[index].name = index
                     index.getFacts()
 
     def _stateAction(self=None, action=None, action2perform=None):
