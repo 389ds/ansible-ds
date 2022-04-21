@@ -30,6 +30,6 @@ install:
 	cd ansible_collections ; ansible-galaxy collection install $B -f
 
 unit_test: clean $B install
-	cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python 3.9 --local
+	cd ansible_collections/$N/$M ; ansible-test units -vvvvv --local
 
 

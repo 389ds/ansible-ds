@@ -71,7 +71,7 @@ def initPrefix():
         except PermissionError:
             return False
 
-    def setPrefix(dir, lib389dir):
+    def setPrefix(dir):
         log = logging.getLogger(__name__)
         os.environ['PREFIX'] = dir
         lp = f'{dir}/lib/python3.9/site-packages'
@@ -87,19 +87,19 @@ def initPrefix():
         return
     if 'PREFIX' in os.environ:
         dir = os.environ['PREFIX']
-        setPrefix(dir, f'{dir}/lib/python3.9/site-packages')
+        setPrefix(dir)
         return
     if os.getuid == 0:
-        setPrefix('/', '/usr/lib/python3.9/site-packages')
+        setPrefix('/usr')
         return
     lookup = [ ( Path(__file__).parent.parent.parent.parent.parent, 'ansible-ds'), ]
     while len(lookup) > 0:
         dir, ignore = lookup.pop(0)
         if dir == '/':
-            setPrefix('/', '/usr/lib/python3.9/site-packages')
+            setPrefix('/usr')
             return
         if isPrefix(dir):
-            setPrefix(dir, f'{dir}/lib/python3.9/site-packages')
+            setPrefix(dir)
             return
         try:
             for f in os.listdir(dir):
