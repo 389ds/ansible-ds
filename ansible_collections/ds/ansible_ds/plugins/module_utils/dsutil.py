@@ -5,6 +5,7 @@
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 # --- END COPYRIGHT BLOCK ---
 #
+#
 
 DOCUMENTATION = r'''
 ---
@@ -467,7 +468,10 @@ class DiffResult:
 
     def addModifier(dict, dn, action, attr, val):
         assert (action in DiffResult.ACTIONS)
-        DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), attr).append(ensure_str(val))
+        if action == "deleteEntry":
+            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), "fullRemoval").append(True)
+        else:
+            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), attr).append(ensure_str(val))
 
     def addAction(self, action, dn, attr, val):
         # result = { dn : { action: { attr : [val] } } }

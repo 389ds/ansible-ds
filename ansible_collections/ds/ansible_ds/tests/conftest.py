@@ -1,9 +1,17 @@
+# --- BEGIN COPYRIGHT BLOCK ---
+# Copyright (C) 2022 Red Hat, Inc.
+# All rights reserved.
+#
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+# --- END COPYRIGHT BLOCK ---
+#
+#
+
 import pytest
 import logging
 import json
 import sys
 import os
-import io
 import os
 import subprocess
 from pathlib import Path
@@ -46,7 +54,7 @@ class AnsibleTest:
         return self.result
 
     def listInstances(self):
-        return [ instance['name'] for instance in result['my_useful_info']['instances'] ]
+        return [ instance['name'] for instance in self.result['my_useful_info']['instances'] ]
 
     def getInstanceAttr(self, instname, attr):
         return self.result['my_useful_info']['instances'][instname][attr]
@@ -73,30 +81,36 @@ def initPrefix():
 
     def setPrefix(dir):
         log = logging.getLogger(__name__)
-        os.environ['PREFIX'] = dir
-        lp = f'{dir}/lib/python3.9/site-packages'
-        # sys.path is reset by the framework so let save the lib389 path 
-        # in an environment variable that will be set in the testcase
-        # before importing lib389.topologies
-        os.environ['LIB389PATH'] = lp
-        log.error(f'PREFIX={dir} LIB389PATH={lp}')
+        if dir == '/':
+            if "PREFIX" in os.environ:
+                os.environ.pop('PREFIX')
+            log.debug(f'PREFIX is not set')
+        else:
+            os.environ['PREFIX'] = dir
+            # TODO: We shouldn't use a hardcoded Python version value
+            lp = f'{dir}/lib/python3.9/site-packages'
+            # sys.path is reset by the framework so let save the lib389 path
+            # in an environment variable that will be set in the testcase
+            # before importing lib389.topologies
+            os.environ['LIB389PATH'] = lp
+            log.error(f'PREFIX={dir} LIB389PATH={lp}')
         os.environ['ASAN_OPTIONS'] = 'exitcode=0 '
 
-    if 'LIB389PATH' in os.environ:
-        # setPrefix was already called ==> we are done.
-        return
     if 'PREFIX' in os.environ:
+        if 'LIB389PATH' in os.environ:
+                # setPrefix was already called ==> we are done.
+                return
         dir = os.environ['PREFIX']
         setPrefix(dir)
         return
     if os.getuid == 0:
-        setPrefix('/usr')
+        setPrefix('/')
         return
     lookup = [ ( Path(__file__).parent.parent.parent.parent.parent, 'ansible-ds'), ]
     while len(lookup) > 0:
         dir, ignore = lookup.pop(0)
         if dir == '/':
-            setPrefix('/usr')
+            setPrefix('/')
             return
         if isPrefix(dir):
             setPrefix(dir)
@@ -111,6 +125,6 @@ def initPrefix():
             lookup.append( ( str(Path(dir).parent), str(Path(dir).name)) )
 
 # Initialize the prefix before collecting the files.
-def pytest_sessionstart(session):
+def pytest_sessionstart():
     initPrefix()
 
