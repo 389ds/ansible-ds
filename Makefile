@@ -1,4 +1,4 @@
-
+python_version=$(shell python -c "from sys import stdout, version_info as vi; pv='%d.%d' % (vi.major, vi.minor); stdout.write(pv)")
 N=ds
 M=ansible_ds
 V=1.0.0
@@ -30,6 +30,6 @@ install:
 	cd ansible_collections ; ansible-galaxy collection install $B -f
 
 unit_test: clean $B install
-	cd ansible_collections/$N/$M ; ansible-test units -vvvvv --local
+	cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version}--local
 
 
