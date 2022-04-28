@@ -11,7 +11,7 @@ import os
 import sys
 
 # Set PYTHONPATH to be able to find lib389 in PREFIX install (computed within conftest seesion initialization hook)
-if "PREFIX" in os.environ:
+if "LIB389PATH" in os.environ:
     sys.path.insert(0, os.environ['LIB389PATH'])
 
 
