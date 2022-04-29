@@ -39,6 +39,7 @@ requirements:
 '''
 
 import os
+import sys
 import re
 import json
 import glob
@@ -52,6 +53,7 @@ from tempfile import TemporaryDirectory
 from lib389 import DirSrv
 from lib389.dseldif import DSEldif
 from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
+from lib389.instance.setup import SetupDs
 
 from configparser import ConfigParser
 from .dsutil import NormalizedDict, DSE, DiffResult, getLogger
