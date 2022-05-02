@@ -37,7 +37,7 @@ prereq:
 	pip3 install -r requirements.txt
 
 lint:
-	pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
+	cd ansible_collections/ds/ansible_ds/tests; pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
 	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
 	#cd ansible_collections/ds/ansible_ds/tests; py.test --pylint
 
@@ -48,7 +48,7 @@ ini:	$(INIFILE)
 
 $(INIFILE):
 	@echo "[/]" >  $(INIFILE)
-	@if [ x$(PREFIX) != x ]; then echo PREFIX=$(PREFIX) >> $(INIFILE) ; echo 'LIB389PATH=$${PREFIX}/lib/python3.9/site-packages' >> $(INIFILE) ; fi
+	@if [ x$(PREFIX) != x ]; then echo PREFIX=$(PREFIX) >> $(INIFILE) ; echo 'LIB389PATH=$${PREFIX}/lib/python$(python_version)/site-packages' >> $(INIFILE) ; fi
 	@echo DEBUGGING=1 >> $(INIFILE)
 	cat $(INIFILE)
 
