@@ -11,7 +11,7 @@
 
 import os
 import sys
-from configparser import ConfigParser, ExtendedInterpolation
+from configparser import ConfigParser, ExtendedInterpolation, NoOptionError
 from pathlib import Path
 from pwd import getpwuid
 import json
@@ -62,9 +62,12 @@ class IniFileConfig:
         """Put all param from the best section in the environment"""
         if self.best_section:
             for var in IniFileConfig.EXPORTS:
-                val = self.config.get(self.best_section, var)
-                if val:
-                    os.environ[var] = val
+                try:
+                    val = self.config.get(self.best_section, var)
+                    if val:
+                        os.environ[var] = val
+                except NoOptionError as e:
+                    pass
         os.environ['ASAN_OPTIONS'] = 'exitcode=0 '
 
     @staticmethod
