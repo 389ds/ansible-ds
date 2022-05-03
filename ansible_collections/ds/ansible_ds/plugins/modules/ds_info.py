@@ -155,5 +155,8 @@ def main():
 
 
 if __name__ == '__main__':
+    if 'test' in sys.argv:
+        buff = json.dumps( { "ANSIBLE_MODULE_ARGS": { "prefix" : os.getenv('PREFIX','') } } )
+        sys.argv = [ sys.argv[0], buff ]
     main()
 

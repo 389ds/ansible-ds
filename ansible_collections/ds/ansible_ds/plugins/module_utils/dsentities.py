@@ -51,6 +51,9 @@ import random
 from shutil import copyfile
 from tempfile import TemporaryDirectory
 from lib389 import DirSrv
+
+with open('/tmp/l', 'w') as f:
+    f.write(f'{__file__}: sys.path={sys.path}\n')
 from lib389.dseldif import DSEldif
 from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
 from lib389.instance.setup import SetupDs
@@ -268,7 +271,8 @@ class MyYAMLObject(yaml.YAMLObject):
             state.pop(var, None)
         for var in self.CHILDREN:
             list = self.__dict__[var]
-            if len(list) == 0:
+            # Meeds to keep YAMLHost instances even if it is empty
+            if len(list) == 0 and not isinstance(self, YAMLHost):
                 state.pop(var, None)
         return state
 
