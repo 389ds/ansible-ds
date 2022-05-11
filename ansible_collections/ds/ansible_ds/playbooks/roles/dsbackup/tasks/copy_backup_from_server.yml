@@ -1,0 +1,47 @@
+---
+- name: Fail on invalid dsbackup_archive_path
+  fail: msg="dsbackup_archive_path {{ dsbackup_archive_path }} is not valid"
+  when: dsbackup_archive_path is not defined or
+        dsbackup_archive_path | length < 1
+
+- name: Set controller destination directory
+  set_fact:
+    dsbackup_controller_dir:
+        "{{ dsbackup_archive_controller_path | default(lookup('env','PWD')) }}/{{
+         dsbackup_archive_name_prefix | default(ansible_facts['fqdn']) }}_{{
+         dsbackup_archive_path }}/"
+
+- name: Get DS backup dir
+  import_tasks: "{{ role_path }}/tasks/get_dsbackup_dir.yml"
+
+- name: Stat backup on server
+  stat:
+    path: "{{ dsbackup_dir }}/{{ dsbackup_archive_path }}"
+  register: result_backup_stat
+
+- name: Fail on missing backup directory
+  fail: msg="Unable to find backup {{ dsbackup_archive_path }}"
+  when: result_backup_stat.stat.isdir is not defined
+
+- name: Get backup files to copy for "{{ dsbackup_archive_path }}"
+  shell:
+    find . -type f | cut -d"/" -f 2
+  args:
+    chdir: "{{ dsbackup_dir }}/{{ dsbackup_archive_path }}"
+  register: result_find_backup_files
+
+- name: Copy server backup files to controller
+  fetch:
+    flat: yes
+    src: "{{ dsbackup_dir }}/{{ dsbackup_archive_path }}/{{ item }}"
+    dest: "{{ dsbackup_controller_dir }}"
+  with_items:
+  - "{{ result_find_backup_files.stdout_lines }}"
+
+- name: Fix file modes for backup on controller
+  file:
+    dest: "{{ dsbackup_controller_dir }}"
+    mode: u=rwX,go=
+    recurse: yes
+  delegate_to: localhost
+  become: no

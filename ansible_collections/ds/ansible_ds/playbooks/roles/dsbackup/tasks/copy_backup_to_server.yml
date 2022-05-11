@@ -1,0 +1,37 @@
+---
+- name: Fail on invalid dsbackup_archive_path
+  fail: msg="dsbackup_archive_path {{ dsbackup_archive_path }} is not valid"
+  when: dsbackup_archive_path is not defined or
+        dsbackup_archive_path | length < 1
+
+- name: Set controller source directory
+  set_fact:
+    dsbackup_controller_dir:
+      "{{ dsbackup_controller_path | default(lookup('env','PWD')) }}"
+
+- name: Set dsbackup_item
+  set_fact:
+    dsbackup_item: "{{ dsbackup_archive_path }}"
+
+- name: Stat backup to copy
+  stat:
+    path: "{{ dsbackup_controller_dir }}/{{ dsbackup_archive_path }}"
+  register: result_backup_stat
+  delegate_to: localhost
+  become: no
+
+- name: Fail on missing backup to copy
+  fail: msg="Unable to find backup {{ dsbackup_archive_path }}"
+  when: result_backup_stat.stat.isdir is not defined
+
+- name: Get DS backup dir
+  import_tasks: "{{ role_path }}/tasks/get_dsbackup_dir.yml"
+
+- name: Copy backup files to server for "{{ dsbackup_item }}"
+  copy:
+    src: "{{ dsbackup_controller_dir }}/{{ dsbackup_archive_path }}/"
+    dest: "{{ dsbackup_dir }}/{{ dsbackup_item }}"
+    owner: dirsrv
+    group: dirsrv
+    mode: u=rw,go=r
+    directory_mode: u=rwx,go=

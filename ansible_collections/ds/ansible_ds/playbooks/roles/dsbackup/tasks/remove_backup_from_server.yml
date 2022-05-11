@@ -1,0 +1,5 @@
+---
+- name: Remove backup "{{ dsbackup_item }}"
+  file:
+    path: "{{ dsbackup_dir }}/{{ dsbackup_item }}"
+    state: absent
