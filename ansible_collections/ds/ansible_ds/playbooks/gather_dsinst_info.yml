@@ -1,15 +1,10 @@
----
-- hosts: localhost
+- name: Playbook to gather DS instance info
+  hosts: localhost
   collections:
-    - my_namespace.first_collection
+    - ds.ansible_ds
 
   roles:
-    - install_dspkg
-    - info_dsinst
-
-#  tasks:
-#    - name: debug
-#      debug:
-#        msg: 
-#         - "Ici" 
-#
+  - role: install_dspkg
+    state: present
+  - role: info_dsinst
+    state: present

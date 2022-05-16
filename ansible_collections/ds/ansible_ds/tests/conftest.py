@@ -13,7 +13,9 @@ import os
 import sys
 from configparser import ConfigParser, ExtendedInterpolation, NoOptionError
 from pathlib import Path
+from shutil import copyfile, rmtree
 from pwd import getpwuid
+from tempfile import mkdtemp
 import json
 import logging
 import subprocess
@@ -42,6 +44,12 @@ class IniFileConfig:
     EXPORTS = ( 'PREFIX',  'LIB389PATH', 'DEBUGGING', 'BASE' ) # Variables to export from ini file
     HOME = str(getpwuid(os.getuid()).pw_dir) # Home directory
     INIFILE = f'{HOME}/.389ds-ansible.ini'
+    if os.getuid() == 0:
+        ANSIBLE_PLAYBOOK  = "/usr/bin/ansible-playbook"
+        ANSIBLE_HOME  = f"{HOME}/.ansible"
+    else:
+        ANSIBLE_PLAYBOOK  = f"{HOME}/.local/bin/ansible-playbook"
+        ANSIBLE_HOME  = f"{HOME}/.ansible"
 
     def __init__(self):
         self.config = ConfigParser(interpolation=ExtendedInterpolation())
@@ -75,7 +83,58 @@ class IniFileConfig:
         """return the full path from a path that is relative to the galaxy collection source root (i.e: ..)."""
         return f"{IniFileConfig.BASE}/{relpath}"
 
+
+class PlaybookTestEnv:
+    """This provides contains method to run test playbooks."""
+
+    def __init__(self):
+        self.testfailed = False
+        self.skip = True
+        self.dir = None
+        tarballpath = Path(f'{Path(IniFileConfig.BASE).parent.parent}/ds-ansible_ds-1.0.0.tar.gz')
+        if tarballpath.exists():
+            # Create a working directory for running the playbooks
+            self.dir = mkdtemp()
+            self.pbdir = f'{self.dir}/playbooks'
+            os.makedirs(self.pbdir, mode=0o750)
+            # Install our ansible  collection
+            subprocess.run(('ansible-galaxy', 'collection', 'install', '-p', self.pbdir, tarballpath), encoding='utf8', text=True)
+            self.skip = False
+            os.environ['ANSIBLE_LIBRARY'] = f'{self.pbdir}/ansible_collections/ds/ansible_ds'
+        # setup the envirnment variables
+        lp = os.getenv("LIB389PATH", None)
+        pp = os.getenv("PYTHONPATH", "")
+        self.debugging = os.getenv('DEBUGGING', None)
+        if lp and lp not in pp.split(':'):
+            os.environ["PYTHONPATH"] = f"{lp}:{pp}"
+
+    def run(self, testitem, playbook):
+        if self.skip:
+            pytest.skip('Failed to create playbook test environment (conftest.py)')
+            return
+        pb_name = f'{playbook.name}'
+        pb = Path(f'{self.pbdir}/{pb_name}')
+        copyfile(playbook, pb)
+        if self.debugging:
+            cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, '-vvvvv', pb_name)
+        else:
+            cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, pb_name)
+        result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=self.pbdir) # pylint: disable=subprocess-run-check
+        testitem.add_report_section("call", "stdout", result.stdout)
+        testitem.add_report_section("call", "stderr", result.stderr)
+        testitem.add_report_section("call", "cwd", self.pbdir)
+        if result.returncode != 0:
+            self.testfailed = True
+            raise AssertionError(f"ansible-playbook failed: return code is {result.returncode}")
+
+    def cleanup(self):
+        if self.dir and not (self.debugging and self.testfailed):
+            rmtree(self.dir)
+
+
 _CONFIG = IniFileConfig()
+_CONFIG.exportAll()
+_PLAYBOOK = PlaybookTestEnv()
 
 
 class AnsibleTest:
@@ -183,6 +242,23 @@ def ansibletest(caplog):
     """Provide an AnsibleTest instance."""
     return AnsibleTest(caplog)
 
-def pytest_sessionstart():
-    """Initialize the prefix before collecting the test modules."""
-    _CONFIG.exportAll()
+def pytest_sessionfinish():
+    _PLAYBOOK.cleanup()
+
+### Lets run test_*.yml playbooks
+
+class PlaybookItem(pytest.Item):
+    def __init__(self, pytest_file, parent):
+        super(PlaybookItem, self).__init__(pytest_file.name, parent)
+        self.pytest_file = pytest_file
+
+    def runtest(self):
+        _PLAYBOOK.run(self, self.pytest_file.path)
+
+class PlaybookFile(pytest.File):
+    def collect(self):
+        yield PlaybookItem.from_parent(parent=self, pytest_file=self)
+
+def pytest_collect_file(parent, file_path):
+    if file_path.suffix == ".yml" and file_path.name.startswith("test_"):
+        return PlaybookFile.from_parent(parent, path=file_path)
