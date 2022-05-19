@@ -24,7 +24,7 @@ if "LIB389PATH" in os.environ:
 from lib389.topologies import topology_m2 as topo_m2    # pylint: disable=wrong-import-position
 
 
-def test_info1(topo_m2, ansibletest):
+def test_info(topo_m2, ansibletest):
     """Test dsinfo module #1.
         Setup: two suppliers
         Step 1: Run ds_info module

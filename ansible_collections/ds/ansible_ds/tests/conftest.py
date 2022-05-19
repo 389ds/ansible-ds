@@ -200,7 +200,7 @@ class AnsibleTest:
 
     def runModule(self, cmd, stdin_text):
         """Run a specific ansible module."""
-        stdin_text = str(stdin_text).replace("'", '"')
+        stdin_text = json.dumps(stdin_text)
         self.log.info('Running module {%s} with stdin: %s', cmd, stdin_text)
         os.environ['PYTHONPATH'] = ":".join(sys.path)
         # should spawn a subprocess rather than importing the module and calls run_module
@@ -208,6 +208,7 @@ class AnsibleTest:
         result = subprocess.run([cmd], encoding='utf8', text=True, input=stdin_text, capture_output=True, check=False) # pylint: disable=subprocess-run-check
         self._logRunResult(result)
         assert result.returncode in (0, 1)
+        self.log.info(f'Module {cmd} result is {result.stdout}')
         self.result = json.loads(result.stdout)
         return self.result
 

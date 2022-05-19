@@ -24,7 +24,7 @@ description:
     - SpecialOption class:    class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
     - OptionAction class:     utility class used to perform action on an Option
     - MyYAMLObject class:     the generic class for ds389 entities
-    - YAMLHost class:         the MyYAMLObject class associated with the root entity: (local host)
+    - YAMLRoot class:         the MyYAMLObject class associated with the root entity: (local host)
     - YAMLInstance class:     the MyYAMLObject class associated with a ds389 instance
     - YAMLBackend class:      the MyYAMLObject class associated with a backend
     - YAMLIndex class:        the MyYAMLObject class associated with an index
@@ -50,21 +50,23 @@ import socket
 import random
 from shutil import copyfile
 from tempfile import TemporaryDirectory
+from ldap.ldapobject import SimpleLDAPObject
 from lib389 import DirSrv
-
-with open('/tmp/l', 'w') as f:
-    f.write(f'{__file__}: sys.path={sys.path}\n')
 from lib389.dseldif import DSEldif
-from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
+from lib389.backend import Backend
 from lib389.instance.setup import SetupDs
+from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
 
 from configparser import ConfigParser
 from .dsutil import NormalizedDict, DSE, DiffResult, getLogger
 
-
+ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
 
 log = None
+
+def isTrue(val):
+    return val is True or val.lower() in ("true", "started")
 
 
 # class handling ansible-ds parameters for each YAML Object
@@ -73,6 +75,7 @@ class Option:
         self.name = name
         self.desc = desc
         self.prio = 10
+        self.rdonly = False
 
     def __repr__(self):
         repr = f"Option({self.name}"
@@ -87,7 +90,7 @@ class Option:
     def _get_action(self, target, facts, vfrom, vto):
         return []
 
-# class handling the Option associated with ds389 parameters that are in dse.ldif 
+# class handling the Option associated with ds389 parameters that are in dse.ldif
 class DSEOption(Option):
     def __init__(self, dsename, dsedn, vdef, desc):
         name = dsename.replace("-", "_").lower()
@@ -118,8 +121,8 @@ class DSEOption(Option):
                 action.target._infConfig['slapd'][option.name] = str(val)
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            if dsedn:
-                action.target.addModifier(option.dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
+            if dsedn and not action.option.rdonly:
+                action.target.addModifier(dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
 
 # class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
@@ -127,6 +130,11 @@ class ConfigOption(DSEOption):
         DSEOption.__init__(self, name, dsedn, vdef, desc)
         self.dsename = dsename
 
+# For read-only attributes (or attributes that cannot be changed while server is on line
+class ConfigOptionRO(ConfigOption):
+    def __init__(self, name, dsename, dsedn, vdef, desc):
+        super().__init__(name, dsename, dsedn, vdef, desc)
+        self.rdonly = True
 # class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
     def __init__(self, name, prio, desc):
@@ -153,12 +161,12 @@ class OptionAction:
         Define the action to perform about an option
     """
     def __init__(self, option, target, facts, vfrom, vto, func):
-        self.option = option
-        self.target = target
-        self.facts = facts
-        self.vfrom = vfrom
-        self.vto = vto
-        self.func = func  #  func(self, action=action, action2perform=action2perform) 
+        self.option = option    # The parameter definition
+        self.target = target    # The target entity
+        self.facts = facts      # Current state
+        self.vfrom = vfrom      # Current value
+        self.vto = vto          # Value to set
+        self.func = func  #  func(self, action=action, action2perform=action2perform)
 
     def getPrio(self):
         return self.option.prio
@@ -171,6 +179,10 @@ class OptionAction:
         assert type in OptionAction.TYPES
         return self.func(action=self, action2perform=type)
 
+    def __str__(self):
+        #return f'OptionAction({self.__dict__})'
+        return f'OptionAction(option={self.option.name}, prio={self.option.prio}, dsename={self.option.dsename}, target={self.target.name}, vfrom={self.vfrom}, vto={self.vto})'
+
 # class representong the enties like instance, backends, indexes, ...
 class MyYAMLObject(yaml.YAMLObject):
     yaml_loader = yaml.SafeLoader
@@ -182,7 +194,7 @@ class MyYAMLObject(yaml.YAMLObject):
         # A list of Option ojects
     )
     CHILDREN = (
-        # A list of variable that contains a list of MyYAMLObject 
+        # A dict (variableNamner:, objectClassi) of variable that contains a list of MyYAMLObject
     )
     HIDDEN_VARS =  (
         # A list of pattern of variable that should not be dumped in YAML
@@ -193,11 +205,58 @@ class MyYAMLObject(yaml.YAMLObject):
         log = getLogger()
         self.name = name
         self.state = "present"
-        for child in self.CHILDREN:
+        for child in self.CHILDREN.keys():
             self.__dict__[child] = {}
         self._children = []
         self._parent = parent
         self.setCtx()
+
+    def set(self, args):
+        log.debug(f"MyYAMLObject.set {self} {self.name} <-- {args}")
+        ### Initialize the object from a raw dict
+        if isinstance(args, str):
+            args = json.loads(args)
+        assert isinstance(args, dict)
+        for key, val in args.items():
+            if key == 'tag':
+                continue
+            if key.startswith('_'):
+                continue
+            if key in self.CHILDREN.keys():
+                newval = {}
+                # Lets recurse on the children objects
+                for name, obj in val.items():
+                    newval[name] = self.CHILDREN[key](name, parent=self)
+                    newval[name].set(obj)
+                self.setOption(key, newval)
+                continue
+            # And finally handles the rgular options
+            self.setOption(key, val)
+        # Insure all childrens attributes have a dict value
+        for key in self.CHILDREN.keys():
+            if not hasattr(self, key):
+                self.setOption(key, {})
+        # And check that options are valids
+        self.validate()
+
+    def todict(self):
+        res = {}
+        for key, val in self.__dict__.items():
+            if key.startswith('_'):
+                continue
+            if key in ('tag', 'name'):
+                continue
+            if key in self.CHILDREN.keys():
+                newval = {}
+                # Lets recurse on the children objects
+                for name, obj in val.items():
+                    newval[name] = obj.todict()
+                res[key] = newval
+                continue
+            # And finally handles the regular options
+            res[key] = val
+            log.info(f"todict: {self.name} {key} <-- {val}")
+        return res
 
     def setCtx(self):
         self._infConfig = ConfigParser()
@@ -222,6 +281,8 @@ class MyYAMLObject(yaml.YAMLObject):
         if path is None:
             return path
         dict = { **self.getPathNames(), **extrapathnames }
+        if not 'prefix' in dict:
+            dict['prefix'] = os.getenv('prefix','')
         try:
             return path.format(**dict)
         except KeyError as e:
@@ -269,10 +330,10 @@ class MyYAMLObject(yaml.YAMLObject):
                 state.pop(var, None)
         for var in self.HIDDEN_VARS:
             state.pop(var, None)
-        for var in self.CHILDREN:
+        for var in self.CHILDREN.keys():
             list = self.__dict__[var]
-            # Meeds to keep YAMLHost instances even if it is empty
-            if len(list) == 0 and not isinstance(self, YAMLHost):
+            # Meeds to keep YAMLRoot instances even if it is empty
+            if len(list) == 0 and not isinstance(self, YAMLRoot):
                 state.pop(var, None)
         return state
 
@@ -280,34 +341,30 @@ class MyYAMLObject(yaml.YAMLObject):
         setattr(self, option, val)
 
     def validate(self):
+        ### Check that attributes are valid.
         dict = self.__dict__
         dictCopy = { **dict }
-        # Rebuild the child/parent relationship and validate the children
-        self._children = []
-        self.setCtx()
-        log.debug(f"Validate {self.getClass()}(name={self.name})")
-        for c in self.CHILDREN:
-            self._children.append(c)
-            if not c in dict:
-                self.setOption(c, {})
-                dict[c] = {}
-            for c2 in dict[c].values():
-                log.debug(f"Validate {self.getClass()}(name={self.name}) children is {c2.getClass()}(name={c2.name})")
-                c2.validate()
-                c2._parent = self
-                c2.setCtx()
-            if c in dictCopy:
-                del dictCopy[c]
+        # Check that mandatory parameters exists and remove them from dictCopy
         for p in self.PARAMS:
             if not p in dict:
                 raise yaml.YAMLError(f"Missing Mandatory parameter {p} in {self.__class__.__name__} object {self}")
             del dictCopy[p]
+        # Remove internal parameters from dictCopy
+        for o in dict.keys():
+            if o.startswith('_'):
+                del dictCopy[o]
+        # Remove expected parameters from dictCopy
         for o in self.OPTIONS:
             if o.name in dictCopy:
                 del dictCopy[o.name]
+        # Note: children are validated through "set" method recursion so remove them from dictCopy
+        for key in self.CHILDREN.keys():
+            if key in dictCopy:
+                del dictCopy[key]
+        # dictCopy should be empty, otherwise there are unexpected parameters
         if len(dictCopy) > 0:
             raise yaml.YAMLError(f"Unexpected  parameters {dictCopy.keys()} in {self.getClass()} object {self}")
-            
+
     def __repr__(self):
         return f"{self.__class__.__name__}(variables={self.__dict__})"
         return f"{self.__class__.__name__}(name={self.name}, variables={self.__dict__})"
@@ -321,15 +378,15 @@ class MyYAMLObject(yaml.YAMLObject):
             return facts
         if self.getClass() == facts.getClass() and self.name == facts.name:
             return facts
-        for var in facts.CHILDREN:
+        for var in facts.CHILDREN.keys():
             list = facts.__dict__[var]
-            for c in list:
+            for c in list.values():
                 if self.getClass() == c.getClass() and self.name == c.name:
                     return c
         facts = globals()[self.getClass()](self.name)
         facts.state = "absent"
         return facts
-        
+
     def getType(self):
         return self.getClass().replace("YAML","")
 
@@ -342,9 +399,34 @@ class MyYAMLObject(yaml.YAMLObject):
                 actions.append(action)
         return sorted(actions, key = lambda x : x.getPrio())
 
-    def update(self, facts=None, args=None):
+    def addModsToSummary(self, mods, summary):
+        for dn, actionDict in mods.items():
+            for action in actionDict:
+                for attr, vals in actionDict[action].items():
+                    if action == DiffResult.ADDENTRY:
+                        summary.append((f"Adding entry {dn}",))
+                        for val in vals:
+                            summary.append((f"Adding value in entry {dn} <-- {attr}={val}",))
+                    elif DiffResult.DELETEENTRY in actionDict:
+                        summary.append((f"Deleting entry {dn}",))
+                        assert len(actionDict) == 1
+                    elif action == DiffResult.ADDVALUE:
+                        for val in vals:
+                            summary.append((f"Adding value in entry {dn} <-- {attr}={val}",))
+                    elif action == DiffResult.DELETEVALUE:
+                        if vals == [ None ] or vals is None:
+                            summary.append((f"Deleting attribute in entry {dn} <-- {attr}",))
+                        else:
+                            for val in vals:
+                                summary.append((f"Deleting value in entry {dn} <-- {attr}={val}",))
+                    elif action == DiffResult.REPLACEVALUE:
+                        for val in vals:
+                            summary.append((f"Replacing value(s) in entry {dn} <-- {attr}={val}",))
+
+
+    def update(self, facts=None, summary=[], onlycheck=False, args=None):
         if not facts:
-            facts = YAMLHost()
+            facts = YAMLRoot()
             facts.getFacts()
         facts = self.findFact(facts)
 
@@ -363,74 +445,187 @@ class MyYAMLObject(yaml.YAMLObject):
                 continue
             action.perform(OptionAction.UPDATE)
         inst = self.getYAMLInstance()
-        if inst:
-            inst.applyMods(self._cfgMods)
+        if inst and not action.option.rdonly:
+            if not onlycheck:
+                inst.applyMods(self._cfgMods)
+                self.addModsToSummary(self._cfgMods, summary)
             dseMods = getattr(self, "dseMods", None)
             if dseMods:
-                inst.applyMods(dseMods)
+                self.addModsToSummary(dseMods, summary)
+                if inst and not action.option.rdonly:
+                    inst.applyMods(dseMods)
 
-        for var in self.CHILDREN:
+        for var in self.CHILDREN.keys():
             list = self.__dict__[var]
-            for c in list:
-                c.update(facts, args)
+            for c in list.values():
+                c.update(facts, summary, onlycheck, args)
 
     def addModifier(self, dn, type, attr, val):
         dict = self._cfgMods
         DiffResult.addModifier(dict, dn, type, attr, val)
 
 
-class YAMLHost(MyYAMLObject):
-    yaml_tag = u'!ds389Host'
-
+class YAMLIndex(MyYAMLObject):
+    IDXDN = 'cn={attr},cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config'
     OPTIONS = (
-        SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
+        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)" ),
+        ConfigOption('systemindex', 'nsSystemIndex', IDXDN, "off", "Tells if the index is a system index" ),
+        SpecialOption('state', 2, "Indicate whether the index is (or should be) present or absent" ),
     )
-    CHILDREN = ( 'instances', )
 
-    def __init__(self):
-        super().__init__(socket.gethostname())
-        self.prefix = self.getPath('{prefix}')
+    def __init__(self, name, parent=None):
+        super().__init__(name, parent=parent)
 
     def MyPathNames(self):
-        return { 'hostname' : self.name, 'prefix' : os.environ.get('PREFIX', "") }
+        return { 'attr' : self.name }
 
     def getFacts(self):
-        ### Lookup for all dse.ldif to list the instances
-        for f in glob.glob(f'{self.prefix}/etc/dirsrv/slapd-*/dse.ldif'):
-            ### Extract the instance name from dse.ldif path
-            m = re.match(f'.*/slapd-([^/]*)/dse.ldif$', f)
-            ### Then creates the Instance Objects
-            instance = YAMLInstance(m.group(1), parent=self)
-            self.instances[instance.name] = instance
-            ### And populate them
-            instance.getFacts()
+        dse = self.getDSE()
+        self.state = 'present'
 
-    def _prefixAction(self=None, action=None, action2perform=None):
+        actions = self.getAllActions(self)
+        bename = self.getPath("{bename}")
+        for action in actions:
+            val = action.perform(OptionAction.FACT)
+            vdef = action.perform(OptionAction.DEFAULT)
+            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            if val and val != vdef:
+                setattr(self, action.option.name, val)
+
+    def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
+        bename = self.getPath("{bename}")
+        log.debug(f"YAMLindex._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
         if action2perform == OptionAction.DESC:
-            return f"Set PREFIX environment variable to {action.vto}"
+            if action.vto == "present":
+                return f"Creating index {action.target.name} on backend {bename}"
+            else:
+                return f"Deleting index {action.target.name} on backend {bename}"
         elif action2perform == OptionAction.DEFAULT:
-            return os.environ.get('PREFIX', "")
+            return "present"
         elif action2perform == OptionAction.FACT:
-            return os.environ.get('PREFIX', "")
+            dse = action.target.getDSE()
+            if dse.getEntry(self.getPath(YAMLIndex.IDXDN)):
+                return 'present'
+            else:
+                return 'absent'
         elif action2perform == OptionAction.CONFIG:
-            val = action.getValue()
-            log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
-            action.target._infConfig['slapd'][option.name] = val
+            pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            os.environ.set('PREFIX', action.vto)
+            inst = action.target.getYAMLInstance()
+            baseDN = action.target.getPath('cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config')
+            if action.vto == "present":
+                # In fact that is the rdn that Backend.create method needs.
+                dn = f'cn={action.target.name}'
+                actions = action.target.getAllActions(action.target)
+                for a in actions:
+                    if getattr(a.option, 'dsedn', None) == YAMLIndex.IDXDN and a.getValue():
+                        mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
+                idx = Index(inst.getDirSrv())
+                log.debug(f"Creating index dn:{dn},{baseDN} properties:{mods}")
+                idx.create(dn, mods, baseDN)
+            else:
+                dn = action.target.getPath(YAMLIndex.IDXDN)
+                idx = Index(inst.getDirSrv(), dn=dn)
+                idx.delete()
+
+
+class YAMLBackend(MyYAMLObject):
+    CHILDREN = { 'indexes': YAMLIndex }
+    BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
+    OPTIONS = (
+        DSEOption('read-only', BEDN, "False", "Desc" ),
+        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc" ),
+        DSEOption('entry-cache-number', BEDN, None, "Desc" ),
+        DSEOption('entry-cache-size', BEDN, None, "Desc" ),
+        DSEOption('dn-cache-size', BEDN, None, "Desc" ),
+        DSEOption('directory', BEDN, None, "Desc" ),
+        DSEOption('db-deadlock', BEDN, None, "Desc" ),
+        DSEOption('chain-bind-dn', BEDN, None, "Desc" ),
+        DSEOption('chain-bind-pw', BEDN, None, "Desc" ),
+        DSEOption('chain-urls', BEDN, None, "Desc" ),
+        ConfigOptionRO('suffix', 'nsslapd-suffix', BEDN, None, "Desc" ),
+        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Desc" ),
+        SpecialOption('state', 2, "Indicate whether the backend is (or should be) present or absent" ),
+    )
+
+
+    def __init__(self, name, parent=None):
+        super().__init__(name, parent=parent)
+
+    def MyPathNames(self):
+        return { 'bename' : self.name }
+
+    def getFacts(self):
+        dse = self.getDSE()
+        self.state = 'present'
+
+        actions = self.getAllActions(self)
+        for action in actions:
+            val = action.perform(OptionAction.FACT)
+            vdef = action.perform(OptionAction.DEFAULT)
+            log.info(f"Backend {self.name} option:{action.option.name} val:{val}")
+            if val and val != vdef:
+                setattr(self, action.option.name, val)
+
+        for dn in dse.class2dn['nsindex']:
+            m = re.match(f'cn=([^,]*),cn=index,cn={self.name},cn=ldbm database,cn=plugins,cn=config', dn)
+            if m:
+                entry = dse.dn2entry[dn]
+                if self.is_default_index(m.group(1), entry) is False:
+                    index = YAMLIndex(m.group(1), parent=self)
+                    index._beentrydn = dn
+                    self.indexes[index].name = index
+                    index.getFacts()
+
+    def _stateAction(self=None, action=None, action2perform=None):
+        option = action.option
+        if action2perform == OptionAction.DESC:
+            if action.vto == "present":
+                return f"Creating backend {action.target.name} on suffix {action.target.suffix}"
+            else:
+                return f"Deleting backend {action.target.name} on suffix {action.target.suffix}"
+        elif action2perform == OptionAction.DEFAULT:
+            return "present"
+        elif action2perform == OptionAction.FACT:
+            dse = action.target.getDSE()
+            if dse.getEntry(self.getPath(YAMLBackend.BEDN)):
+                return 'present'
+            else:
+                return 'absent'
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            inst = action.target.getYAMLInstance()
+            if action.vto == "present":
+                # In fact that is the rdn that Backend.create method needs.
+                dn = f'cn={action.target.name}'
+                prop = {}
+                actions = action.target.getAllActions(action.target)
+                for a in actions:
+                    if getattr(a.option, 'dsedn', None) == YAMLBackend.BEDN and a.getValue():
+                        prop[a.option.dsename] = ensure_bytes(a.getValue())
+                assert 'nsslapd-suffix' in prop
+                be = Backend(inst.getDirSrv())
+                log.debug(f"Creating backend dn:{dn} properties:{prop}")
+                be.create(dn, prop)
+            else:
+                dn = action.target.getPath(YAMLBackend.BEDN)
+                be = Backend(action.target.getYAMLInstance().getDirSrv(), dn=dn)
+                be.delete()
 
 
 class YAMLInstance(MyYAMLObject):
-    yaml_tag = u'!ds389Instance'
     LDBM_CONFIG_DB = 'cn=config,cn=ldbm database,cn=plugins,cn=config'
     PARAMS = {
         ** MyYAMLObject.PARAMS,
         'started' : "Boolean to tell whether the server should be started or stopped.",
         'dseMods' : "List of change that needs to be applied on dse.ldif after the instance creation",
     }
-    CHILDREN = ( 'backends', )
+    CHILDREN = { 'backends' : YAMLBackend }
+
     DEVWARN = ". Only set this parameter in a development environment"
     DEVNRWARN = f"{DEVWARN} or if using non root installation"
     OPTIONS = (
@@ -456,7 +651,7 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('prefix', None, None, None, "Sets the file system prefix for all other directories. Should be the same as the $PREFIX environment variable when using dsconf/dsctl/dscreate" ),
         ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None, "Sets the Distinquished Name (DN) of the administrator account for this instance. " +
             "It is recommended that you do not change this value from the default 'cn=Directory Manager'" ),
-        ConfigOption('root_password', 'nsslapd-root_password', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
+        ConfigOption('root_password', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
             'You can either set this parameter to a plain text password dscreate hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility. ' +
             'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file' ),
         ConfigOption('run_dir', 'nsslapd-rundir', 'cn=config', None, "Directory containing the pid file" ),
@@ -622,6 +817,7 @@ class YAMLInstance(MyYAMLObject):
         s.create_from_args(general, slapd, backends)
         inst = DirSrv()
         inst.local_simple_allocate(serverid=self.name)
+        inst.setup_ldapi()
         self._DirSrv = inst
         if not self.started:
             inst.stop()
@@ -634,7 +830,7 @@ class YAMLInstance(MyYAMLObject):
         self._isDeleted = True
 
     def get2ports(self):
-        # Return 2 free tcp port numbers 
+        # Return 2 free tcp port numbers
         with socket.create_server(('localhost', 0)) as s1:
             host1, port1 = s1.getsockname()
             with socket.create_server(('localhost', 0)) as s2:
@@ -649,14 +845,14 @@ class YAMLInstance(MyYAMLObject):
         defaultglobalDSEpath = self.getPath(self.GLOBAL_DSE_PATH)
         if not os.access(defaultglobalDSEpath, os.F_OK):
             ### If it does not exists then create a dummy instance
-            dummyInstance = YAMLInstance('ansible-default', YAMLHost())
+            dummyInstance = YAMLInstance('ansible-default', YAMLRoot())
             dummyInstance.started = False
             dummyInstance.port, dummyInstance.secure_port = self.get2ports()
             dummyInstance.secure = 'on'
             dummyInstance.self_sign_cert = True
             dummydirSrv = dummyInstance.create()
             dsePath = dummyInstance.getPath(self.DSE_PATH)
-            
+
             ### Preserve the dumy instance dse.ldif
             tmpPath = f'{defaultglobalDSEpath}.tmp'
             copyfile(dsePath, tmpPath)
@@ -702,7 +898,7 @@ class YAMLInstance(MyYAMLObject):
     def _startedAction(self=None, action=None, action2perform=None):
         option = action.option
         if action2perform == OptionAction.DESC:
-            if action.vto in ( True, "True", "started" ):
+            if isTrue(action.vto):
                 return f"Starting instance slapd-{action.target.name}"
             else:
                 return f"Stopping instance slapd-{action.target.name}"
@@ -715,18 +911,21 @@ class YAMLInstance(MyYAMLObject):
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
             # Has we need to keep the server started to update
-            # the configuration 
-            # then do nothing here 
+            # the configuration
+            # then do nothing here
             # stop the server if needed at the end or the instance update
 
-    def update(self, facts=None, args=None):
-        super().update(facts, args)
-        if getattr(self, "started", "True") not in ( "True", "started" ):
+    def update(self, facts=None, summary=[], onlycheck=False, args=None):
+        super().update(facts, summary, onlycheck, args)
+        if not isTrue(getattr(self, "started", "True")):
+            summary.append((f"Stopping instance {self.getDirSrv().serverid}",))
             self.getDirSrv().stop()
 
 
     def applyMods(self, dict):
         dirSrv = self.getDirSrv()
+        if not dirSrv.can_autobind():
+            dirSrv.setup_ldapi()
         started = dirSrv.status()
         if not started:
             dirSrv.start()
@@ -734,189 +933,102 @@ class YAMLInstance(MyYAMLObject):
         for dn, actionDict in dict.items():
             modList = []
             for action in actionDict:
-                if DiffResult.ADDENTRY in actionDict:
-                    for attr, vals in actionDict[DiffResult.ADDENTRY].items():
-                        modList.append( (attr, ensure_list_bytes(vals)) )
-                    log.debug(f"YAMLInstance.applyMods: add({dn}, {modList})")
-                    try:
-                        SimpleLDAPObject.add_s(dirSrv, dn, modList)
-                    except ldap.ALREADY_EXISTS:
-                        log.debug(f"YAMLInstance.applyMods: add returned ldap.ALREADY_EXISTS")
-                        mods = []
-                        for attr, vals in modList:
-                            mods.append( (ldap.MOD_REPLACE, attr, vals) )
-                        log.debug(f"YAMLInstance.applyMods: modify({dn}, {mods})")
-                        SimpleLDAPObject.modify_s(dirSrv, dn, mods)
-                    modList.clear()
-                elif DiffResult.DELETEENTRY in actionDict:
-                    log.debug(f"YAMLInstance.applyMods: delete({dn})")
-                    SimpleLDAPObject.delete_s(dirSrv, dn)
-                elif DiffResult.ADDVALUE in actionDict:
-                    modList.append( (ldap.MOD_ADD, attr, ensure_list_bytes(vals)) )
-                elif DiffResult.DELETEVALUE in actionDict:
-                    modList.append( (ldap.MOD_DELETE, attr, ensure_list_bytes(vals)) )
-                elif DiffResult.REPLACEVALUE in actionDict:
-                    modList.append( (ldap.MOD_REPLACE, attr, ensure_list_bytes(vals)) )
+                for attr, vals in actionDict[action].items():
+                    if action == DiffResult.ADDENTRY:
+                        # try to add the entry
+                        assert len(actionDict) == 1
+                        log.info(f"YAMLInstance.applyMods: add({dn}, {modList})")
+                        try:
+                            SimpleLDAPObject.add_s(dirSrv, dn, modList)
+                        except ldap.ALREADY_EXISTS:
+                            log.info(f"YAMLInstance.applyMods: add returned ldap.ALREADY_EXISTS")
+                    elif DiffResult.DELETEENTRY in actionDict:
+                        assert len(actionDict) == 1
+                        log.info(f"YAMLInstance.applyMods: delete({dn})")
+                        SimpleLDAPObject.delete_s(dirSrv, dn)
+                    elif action == DiffResult.ADDVALUE:
+                        modList.append( (ldap.MOD_ADD, attr, ensure_list_bytes(vals)) )
+                    elif action == DiffResult.DELETEVALUE:
+                        if vals == [ None ] or vals is None:
+                            modList.append( (ldap.MOD_DELETE, attr, None ) )
+                        else:
+                            modList.append( (ldap.MOD_DELETE, attr, ensure_list_bytes(vals)) )
+                    elif action == DiffResult.REPLACEVALUE:
+                        if vals == [ None ] or vals is None:
+                            modList.append( (ldap.MOD_REPLACE, attr, None) )
+                        else:
+                            modList.append( (ldap.MOD_REPLACE, attr, ensure_list_bytes(vals)) )
+
             if len(modList) > 0:
-                log.debug(f"YAMLInstance.applyMods: modify({dn}, {modList})")
+                log.info(f"YAMLInstance.applyMods: modify({dn}, {modList})")
                 SimpleLDAPObject.modify_s(dirSrv, dn, modList)
-                modList.clear()
         if not started:
             dirSrv.stop()
         # Config changed so reload the dse.ldif next time we need it
         setattr(self, "_dse", None)
-                
 
-class YAMLBackend(MyYAMLObject):
-    yaml_tag = u'!ds389Backend'
-    CHILDREN = ( 'indexes', )
-    BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
+
+class YAMLRoot(MyYAMLObject):
     OPTIONS = (
-        DSEOption('read-only', BEDN, "False", "Desc" ),
-        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc" ),
-        DSEOption('entry-cache-number', BEDN, None, "Desc" ),
-        DSEOption('entry-cache-size', BEDN, None, "Desc" ),
-        DSEOption('dn-cache-size', BEDN, None, "Desc" ),
-        DSEOption('directory', BEDN, None, "Desc" ),
-        DSEOption('db-deadlock', BEDN, None, "Desc" ),
-        DSEOption('chain-bind-dn', BEDN, None, "Desc" ),
-        DSEOption('chain-bind-pw', BEDN, None, "Desc" ),
-        DSEOption('chain-urls', BEDN, None, "Desc" ),
-        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "Desc" ),
-        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Desc" ),
-        SpecialOption('state', 2, "Indicate whether the backend is (or should be) present or absent" ),
+        SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
     )
+    CHILDREN = { 'instances': YAMLInstance }
 
+    def from_path(path):
+        ### Decode and validate parameters from yaml or json file. Returns a YAMLRoot object
+        if path.endswith('.yaml') or path.endswith('.yml'):
+            with open(path, 'r') as f:
+                content = yaml.safe_load(f)
+        else:
+            with open(path, 'r') as f:
+                content = json.load(f)
+        host = YAMLRoot()
+        host.set(content)
+        return host
 
-    def __init__(self, name, parent=None):
-        super().__init__(name, parent=parent)
+    def from_stdin():
+        ### Decode and validate parameters from stdin (interpreted as a json file. Returns a YAMLRoot object
+        content = json.load(sys.stdin)
+        host = YAMLRoot()
+        host.set(content)
+        return host
+
+    def from_content(content):
+        ### Validate parameters from raw dict object. Returns a YAMLRoot object
+        host = YAMLRoot()
+        host.set(content)
+        return host
+
+    def __init__(self, name=ROOT_ENTITY):
+        super().__init__(name)
+        self.prefix = self.getPath('{prefix}')
 
     def MyPathNames(self):
-        return { 'bename' : self.name }
+        return { 'hostname' : self.name, 'prefix' : os.environ.get('PREFIX', "") }
 
     def getFacts(self):
-        dse = self.getDSE()
-        self.state = 'present'
+        ### Lookup for all dse.ldif to list the instances
+        for f in glob.glob(f'{self.prefix}/etc/dirsrv/slapd-*/dse.ldif'):
+            ### Extract the instance name from dse.ldif path
+            m = re.match(f'.*/slapd-([^/]*)/dse.ldif$', f)
+            ### Then creates the Instance Objects
+            instance = YAMLInstance(m.group(1), parent=self)
+            self.instances[instance.name] = instance
+            ### And populate them
+            instance.getFacts()
 
-        actions = self.getAllActions(self)
-        for action in actions:
-            val = action.perform(OptionAction.FACT)
-            vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Backend {self.name} option:{action.option.name} val:{val}")
-            if val and val != vdef:
-                setattr(self, action.option.name, val)
-
-        for dn in dse.class2dn['nsindex']:
-            m = re.match(f'cn=([^,]*),cn=index,cn={self.name},cn=ldbm database,cn=plugins,cn=config', dn)
-            if m:
-                entry = dse.dn2entry[dn]
-                if self.is_default_index(m.group(1), entry) is False:
-                    index = YAMLIndex(m.group(1), parent=self)
-                    index._beentrydn = dn
-                    self.indexes[index].name = index
-                    index.getFacts()
-
-    def _stateAction(self=None, action=None, action2perform=None):
+    def _prefixAction(self=None, action=None, action2perform=None):
         option = action.option
         if action2perform == OptionAction.DESC:
-            if action.vto == "present":
-                return f"Creating backend {action.target.name} on suffix {action.target.suffix}"
-            else:
-                return f"Deleting backend {action.target.name} on suffix {action.target.suffix}"
+            return f"Set PREFIX environment variable to {action.vto}"
         elif action2perform == OptionAction.DEFAULT:
-            return "present"
+            return os.environ.get('PREFIX', "")
         elif action2perform == OptionAction.FACT:
-            dse = action.target.getDSE()
-            if dse.getEntry(self.getPath(YAMLBackend.BEDN)):
-                return 'present'
-            else:
-                return 'absent'
+            return os.environ.get('PREFIX', "")
         elif action2perform == OptionAction.CONFIG:
-            pass
+            val = action.getValue()
+            log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
+            action.target._infConfig['slapd'][option.name] = val
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            inst = action.target.getYAMLInstance()
-            if action.vto == "present":
-                # In fact that is the rdn that Backend.create method needs.
-                dn = f'cn={action.target.name}'
-                prop = {}
-                actions = action.target.getAllActions(action.target)
-                for a in actions:
-                    if getattr(a.option, 'dsedn', None) == YAMLBackend.BEDN and a.getValue():
-                        prop[a.option.dsename] = ensure_bytes(a.getValue())
-                assert 'nsslapd-suffix' in prop
-                be = Backend(inst.getDirSrv())
-                log.debug(f"Creating backend dn:{dn} properties:{prop}")
-                be.create(dn, prop)
-            else:
-                dn = action.target.getPath(YAMLBackend.BEDN)
-                be = Backend(action.target.getYAMLInstance().getDirSrv(), dn=dn)
-                be.delete()
-
-
-class YAMLIndex(MyYAMLObject):
-    yaml_tag = u'!ds389Index'
-    IDXDN = 'cn={attr},cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config'
-    OPTIONS = (
-        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)" ),
-        ConfigOption('systemindex', 'nsSystemIndex', IDXDN, "off", "Tells if the index is a system index" ),
-        SpecialOption('state', 2, "Indicate whether the index is (or should be) present or absent" ),
-    )
-
-    def __init__(self, name, parent=None):
-        super().__init__(name, parent=parent)
-
-    def MyPathNames(self):
-        return { 'attr' : self.name }
-
-    def getFacts(self):
-        dse = self.getDSE()
-        self.state = 'present'
-
-        actions = self.getAllActions(self)
-        bename = self.getPath("{bename}")
-        for action in actions:
-            val = action.perform(OptionAction.FACT)
-            vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
-            if val and val != vdef:
-                setattr(self, action.option.name, val)
-
-    def _stateAction(self=None, action=None, action2perform=None):
-        option = action.option
-        bename = self.getPath("{bename}")
-        log.debug(f"YAMLindex._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
-        if action2perform == OptionAction.DESC:
-            if action.vto == "present":
-                return f"Creating index {action.target.name} on backend {bename}"
-            else:
-                return f"Deleting index {action.target.name} on backend {bename}"
-        elif action2perform == OptionAction.DEFAULT:
-            return "present"
-        elif action2perform == OptionAction.FACT:
-            dse = action.target.getDSE()
-            if dse.getEntry(self.getPath(YAMLIndex.IDXDN)):
-                return 'present'
-            else:
-                return 'absent'
-        elif action2perform == OptionAction.CONFIG:
-            pass
-        elif action2perform == OptionAction.UPDATE:
-            setattr(action.facts, option.name, action.vto)
-            inst = action.target.getYAMLInstance()
-            baseDN = action.target.getPath('cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config')
-            if action.vto == "present":
-                # In fact that is the rdn that Backend.create method needs.
-                dn = f'cn={action.target.name}'
-                actions = action.target.getAllActions(action.target)
-                for a in actions:
-                    if getattr(a.option, 'dsedn', None) == YAMLIndex.IDXDN and a.getValue():
-                        mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
-                idx = Index(inst.getDirSrv())
-                log.debug(f"Creating index dn:{dn},{baseDN} properties:{mods}")
-                idx.create(dn, mods, baseDN)
-            else:
-                dn = action.target.getPath(YAMLIndex.IDXDN)
-                idx = Index(inst.getDirSrv(), dn=dn)
-                idx.delete()
-
+            os.environ.set('PREFIX', action.vto)

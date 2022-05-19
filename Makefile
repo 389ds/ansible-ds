@@ -34,7 +34,6 @@ unit_test: clean $B install
 	#cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
 	pytest -vvvvv ansible_collections/$N/$M/tests
 
-
 prereq:
 	pip3 install -r requirements.txt
 
