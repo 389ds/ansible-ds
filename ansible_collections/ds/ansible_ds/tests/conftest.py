@@ -83,7 +83,6 @@ class IniFileConfig:
         """return the full path from a path that is relative to the galaxy collection source root (i.e: ..)."""
         return f"{IniFileConfig.BASE}/{relpath}"
 
-
 class PlaybookTestEnv:
     """This provides contains method to run test playbooks."""
 

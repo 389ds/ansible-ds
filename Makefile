@@ -13,6 +13,7 @@ clean:
 	/bin/rm -rf ansible_collections/ds/ansible_ds/tests/output
 	find . -name __pycache__ | xargs /bin/rm -rf
 	find . -name .pytest_cache | xargs /bin/rm -rf
+	/bin/rm -f pytest.out
 
 precommit: unit_test precommit_notest
 
@@ -32,7 +33,7 @@ install:
 unit_test: clean $B install
     # ansible-test seems to do its own test collection and ignore yml test so use directly pytest
 	#cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
-	pytest -vvvvv ansible_collections/$N/$M/tests
+	pytest -vvvvv ansible_collections/$N/$M/tests 2>&1 | tee pytest.out
 
 prereq:
 	pip3 install -r requirements.txt
