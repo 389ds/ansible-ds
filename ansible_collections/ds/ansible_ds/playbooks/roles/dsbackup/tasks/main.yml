@@ -1,0 +1,127 @@
+---
+# tasks file for ipabackup
+
+- name: Check for empty vars
+  fail: msg="Variable {{ item }} is empty"
+  when: "item in vars and not vars[item]"
+  with_items: "{{ dsbackup_empty_var_checks }}"
+  vars:
+    dsbackup_empty_var_checks:
+#    - dsbackup_instance
+    - dsbackup_controller_path
+    - dsbackup_name_prefix
+
+- name: Fail if dsbackup_from_controller and dsbackup_to_controller are set
+  fail: msg="dsbackup_from_controller and dsbackup_to_controller are set"
+  when: dsbackup_from_controller | bool and dsbackup_to_controller | bool
+
+- name: Get dsbackup_dir from DS installation
+  include_tasks: "{{ role_path }}/tasks/get_dsbackup_dir.yml"
+
+- name: Backup DS server
+  include_tasks: "{{ role_path }}/tasks/backup.yml"
+  when: state|default("present") == "present"
+
+- name: Fail for given dsbackup_name if state is not copied, restored or absent
+  fail: msg="dsbackup_name is given and state is not copied, restored or absent"
+  when: state is not defined or
+        (state != "copied" and state != "restored" and state != "absent") and
+        dsbackup_name is defined
+
+- name: Fail on missing dsbackup_name
+  fail: msg="dsbackup_name is not set"
+  when: (dsbackup_name is not defined or not dsbackup_name) and
+        state is defined and
+        (state == "copied" or state == "restored" or state == "absent")
+
+- block:
+  - name: Get list of all backups on IPA server
+    shell:
+      ls -1
+    args:
+      chdir: "{{ dsbackup_dir }}/"
+    register: result_backup_find_backup_files
+
+  - name: Set dsbackup_names using backup list
+    set_fact:
+      dsbackup_names: "{{ result_backup_find_backup_files.stdout_lines }}"
+
+  when: state is defined and
+        ((state == "copied" and dsbackup_to_controller) or
+         state == "absent") and
+        dsbackup_name is defined and dsbackup_name == "all"
+
+- block:
+  - name: Fail on dsbackup_name all
+    fail: msg="dsbackup_name can not be all in this case"
+    when: dsbackup_name is defined and dsbackup_name == "all"
+
+  - name: Set dsbackup_names from dsbackup_name string
+    set_fact:
+      dsbackup_names: ["{{ dsbackup_name }}"]
+    when: dsbackup_name | type_debug != "list"
+
+  - name: Set dsbackup_names from dsbackup_name list
+    set_fact:
+      dsbackup_names: "{{ dsbackup_name }}"
+    when: dsbackup_name | type_debug == "list"
+  when: dsbackup_names is not defined and dsbackup_name is defined
+
+- name: Set empty dsbackup_names if dsbackup_name is not defined
+  set_fact:
+    dsbackup_names: []
+  when: dsbackup_names is not defined and dsbackup_name is not defined
+
+- block:
+  - name: Copy backup from DS server
+    include_tasks: "{{ role_path }}/tasks/copy_backup_from_server.yml"
+    vars:
+      dsbackup_archive_path: "{{ main_item }}"
+    with_items:
+    - "{{ dsbackup_names }}"
+    loop_control:
+      loop_var: main_item
+    when: state is defined and state == "copied"
+
+  - name: Remove backup from DS server
+    include_tasks: "{{ role_path }}/tasks/remove_backup_from_server.yml"
+    vars:
+      dsbackup_item: "{{ main_item }}"
+    with_items:
+    - "{{ dsbackup_names }}"
+    loop_control:
+      loop_var: main_item
+    when: state is defined and state == "absent"
+
+  when: state is defined and
+        ((state == "copied" and dsbackup_to_controller) or state == "absent")
+
+# Fail with more than one entry in dsbackup_names for copy to sever and
+# restore.
+
+- name: Fail to copy or restore more than one backup on the server
+  fail: msg="Only one backup can be copied to the server or restored"
+  when: state is defined and (state == "copied" or state == "restored") and
+        dsbackup_from_controller | bool and dsbackup_names | length != 1
+
+# Use only first item in dsbackup_names for copy to server and for restore.
+
+- block:
+  - name: Copy backup to server
+    include_tasks: "{{ role_path }}/tasks/copy_backup_to_server.yml"
+
+  - name: Restore DS server backup
+    include_tasks: "{{ role_path }}/tasks/restore.yml"
+    when: state|default("present") == "restored"
+
+  vars:
+    dsbackup_archive_path: "{{ dsbackup_names[0] }}"
+  when: dsbackup_from_controller or
+        (state|default("present") == "copied" and not dsbackup_to_controller)
+
+- name: Restore DS server
+  include_tasks: "{{ role_path }}/tasks/restore.yml"
+  vars:
+    dsbackup_item: "{{ dsbackup_names[0] | basename }}"
+  when: not dsbackup_from_controller and
+        state|default("present") == "restored"

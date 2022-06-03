@@ -1,0 +1,11 @@
+---
+- name: Playbook to restore an DS instance
+  hosts: localhost
+  become: true
+
+  vars:
+    dsbackup_name: localhost_2022_05_19_21_26_26
+
+  roles:
+  - role: dsbackup
+    state: restored
