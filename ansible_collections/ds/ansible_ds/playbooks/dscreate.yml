@@ -1,0 +1,47 @@
+- name: Playbook to create a new instance if it does not alreadfy exist
+  hosts: localhost
+  collections:
+    - ds.ansible_ds
+
+  roles:
+  - role: ansible_collections/ds/ansible_ds/playbooks/roles/install_dspkg
+    state: present
+
+  vars:
+    instdict:  "{{
+        {
+            instance:
+              {
+                'state': 'present',
+                'port': port,
+                'secure_port': secure_port,
+                'root_password': rootpw,
+                'backends': bedict,
+              }
+        }
+    }}"
+
+  tasks:
+    - name: load encrypted variables
+      include_vars: "vault.yml" 
+
+    - name: load the instance configuration variables from dscreat_config.yml
+      include_vars: "dscreat_config.yml"
+
+    - name: populate the backends dict variable
+      set_fact:
+        bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
+      loop: "{{ backends|dict2items }}"
+
+    - name: debug instdict
+      debug:
+        var: instdict
+
+    - ds.ansible_ds.ds_update:
+       content:
+          state: present
+          prefix:  "{{ lookup('env', 'PREFIX') | default('', True) }}"
+          instances: "{{instdict}}"
+      tags: vars
+
+

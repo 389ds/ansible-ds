@@ -106,6 +106,44 @@ def getLogger():
     global log
     return log
 
+
+def _ldap_op_s(inst, f, fname, *args, **kwargs):
+    """Define wrappers around the synchronous ldap operations to have a clear diagnostic."""
+
+    # f.__name__ says 'inner' so the wanted name is provided as argument
+    try:
+        return f(*args, **kwargs)
+    except ldap.LDAPError as e:
+        new_desc = f"{fname}({args}, {kwargs}) on instance {inst.serverid}";
+        if len(e.args) >= 1:
+            e.args[0]['ldap_request'] = new_desc
+        raise
+
+def add_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.add_s, 'add_s', *args, **kwargs)
+
+def add_ext_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.add_ext_s, 'add_ext_s', *args, **kwargs)
+
+def modify_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.modify_s, 'modify_s', *args, **kwargs)
+
+def modify_ext_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.modify_ext_s, 'modify_ext_s', *args, **kwargs)
+
+def delete_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.delete_s, 'delete_s', *args, **kwargs)
+
+def delete_ext_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.delete_ext_s, 'delete_ext_s', *args, **kwargs)
+
+def search_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.search_s, 'search_s', *args, **kwargs)
+
+def search_ext_s(inst, *args, **kwargs):
+    return _ldap_op_s(inst, inst.search_ext_s, 'search_ext_s', *args, **kwargs)
+
+
 def toAnsibleResult(object):
    cb=getattr(object, "toAnsibleResult", None)
    if cb is not None:
@@ -303,13 +341,13 @@ class LdapOp(yaml.YAMLObject):
                 mods.append( (attr, ensure_list_bytes(vals)) )
 
     def _ldap_add(self, dirSrv):
-        SimpleLDAPObject.add_s(dirSrv, self.dn, self.to_ldap_mods())
+        add_s(dirSrv, self.dn, self.to_ldap_mods())
 
     def _ldap_del(self, dirSrv):
-        SimpleLDAPObject.delete_s(dirSrv, self.dn)
+        delete_s(dirSrv, self.dn)
 
     def _ldap_mod(self, dirSrv):
-        SimpleLDAPObject.modify_s(dirSrv, self.dn, self.to_ldap_mods())
+        modify_s(dirSrv, self.dn, self.to_ldap_mods())
 
     def apply(self, dirSrv):
         opinfo = self.___opinfo[self.op]

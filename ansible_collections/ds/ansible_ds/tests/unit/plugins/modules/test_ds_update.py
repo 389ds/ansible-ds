@@ -36,8 +36,8 @@ config_2i={
                 }
             },
             "root_password" : DIRECTORY_MANAGER_PASSWORD,
-            "port": "5555",
-            "secure_port": "6666",
+            "port": "38901",
+            "secure_port": "63601",
             "started": "true",
             "state": "present"
         },
@@ -48,8 +48,8 @@ config_2i={
                 "suffix": "dc=example,dc=com"}
             },
             "root_password" : DIRECTORY_MANAGER_PASSWORD,
-            "port": "5556",
-            "secure_port": "6667",
+            "port": "38902",
+            "secure_port": "63602",
             "started": "true",
             "state": "present"
         }

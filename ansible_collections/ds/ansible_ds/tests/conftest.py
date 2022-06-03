@@ -13,13 +13,25 @@ import os
 import sys
 from configparser import ConfigParser, ExtendedInterpolation, NoOptionError
 from pathlib import Path
-from shutil import copyfile, rmtree
+from shutil import copyfile, copytree, rmtree
 from pwd import getpwuid
 from tempfile import mkdtemp
 import json
 import logging
 import subprocess
 import pytest
+
+_the_env = {}
+
+def _setenv(var, val):
+    """Helper to set environment and keep a local copy."""
+    os.environ[var] = val
+    _the_env[var] = val
+
+def _mylog(msg):
+    """Helper to incondionnaly log a message in a test."""
+    with open('/tmp/atlog.txt', 'at') as f:
+        f.write(f'{msg}\n')
 
 class IniFileConfig:
     """This class retrieve the ini file options out of the best section and export them in os.environ.
@@ -36,12 +48,13 @@ class IniFileConfig:
           PREFIX            where ds is installed
           LIB389PATH        where to look up for the lib389
           DEBUGGING         if set then verbose debugging mode is turned on (and some cleanup task are not done)
+          PLAYBOOKHOME      where the playbook are run. 
         All above variables defaults to None
 
     """
 
     BASE = str(Path(__file__).parent.parent)  # the galaxy collection source root path
-    EXPORTS = ( 'PREFIX',  'LIB389PATH', 'DEBUGGING', 'BASE' ) # Variables to export from ini file
+    EXPORTS = ( 'PREFIX',  'LIB389PATH', 'DEBUGGING', 'PLAYBOOKHOME', 'BASE' ) # Variables to export from ini file
     HOME = str(getpwuid(os.getuid()).pw_dir) # Home directory
     INIFILE = f'{HOME}/.389ds-ansible.ini'
     if os.getuid() == 0:
@@ -73,10 +86,10 @@ class IniFileConfig:
                 try:
                     val = self.config.get(self.best_section, var)
                     if val:
-                        os.environ[var] = val
+                        _setenv(var, val)
                 except NoOptionError as e:
                     pass
-        os.environ['ASAN_OPTIONS'] = 'exitcode=0 '
+        _setenv('ASAN_OPTIONS', 'exitcode=0')
 
     @staticmethod
     def getPath(relpath):
@@ -86,6 +99,33 @@ class IniFileConfig:
 class PlaybookTestEnv:
     """This provides contains method to run test playbooks."""
 
+    VAULT_FILE = 'vars/vault.yml'
+    VAULT_PW_FILE = 'vault_pass.txt'
+    VAULT_PASSWORD = 'A very big secret!'
+    # Test value of some encryted variables
+    SECRETS = {
+        'rootpw' : 'secret12',
+        'replmgrpw' : 'repl-secret',
+    }
+
+    def _init_vault(vault_dir):
+        """Generates the vault password file and vault file for the playbook test
+        """
+
+        vault_pw_file = f'{vault_dir}/{PlaybookTestEnv.VAULT_PW_FILE}'
+        vault_file = Path(f'{vault_dir}/{PlaybookTestEnv.VAULT_FILE}')
+        # Generate vault password file
+        with open(vault_pw_file, 'wt') as f:
+            f.write(PlaybookTestEnv.VAULT_PASSWORD)
+            f.write('\n')
+        _setenv("ANSIBLE_VAULT_PASSWORD_FILE", vault_pw_file)
+        # Generate vault file
+        with open(vault_file, 'wt') as f:
+            for key,val in PlaybookTestEnv.SECRETS.items():
+                cmd =  ( 'ansible-vault', 'encrypt_string', '--stdin-name', key )
+                result = subprocess.run(cmd, encoding='utf8', text=True, input=val, capture_output=True)
+                f.write(result.stdout)
+
     def __init__(self):
         self.testfailed = False
         self.skip = True
@@ -93,27 +133,40 @@ class PlaybookTestEnv:
         tarballpath = Path(f'{Path(IniFileConfig.BASE).parent.parent}/ds-ansible_ds-1.0.0.tar.gz')
         if tarballpath.exists():
             # Create a working directory for running the playbooks
-            self.dir = mkdtemp()
+            self.pbh = os.getenv('PLAYBOOKHOME', None)
+            if self.pbh:
+                self.dir = self.pbh
+                rmtree(self.dir, ignore_errors=True)
+            else:
+                self.dir = mkdtemp()
             self.pbdir = f'{self.dir}/playbooks'
-            os.makedirs(self.pbdir, mode=0o750)
+            # Copy the test playbooks
+            copytree(f'{IniFileConfig.BASE}/tests/playbooks', f'{self.dir}/playbooks')
             # Install our ansible  collection
             subprocess.run(('ansible-galaxy', 'collection', 'install', '-p', self.pbdir, tarballpath), encoding='utf8', text=True)
             self.skip = False
-            os.environ['ANSIBLE_LIBRARY'] = f'{self.pbdir}/ansible_collections/ds/ansible_ds'
+            _setenv('ANSIBLE_LIBRARY', f'{self.pbdir}/ansible_collections/ds/ansible_ds')
+            # Create the vars/vault.yml encrypted variable file
+            PlaybookTestEnv._init_vault(self.pbdir)
         # setup the envirnment variables
         lp = os.getenv("LIB389PATH", None)
         pp = os.getenv("PYTHONPATH", "")
         self.debugging = os.getenv('DEBUGGING', None)
         if lp and lp not in pp.split(':'):
-            os.environ["PYTHONPATH"] = f"{lp}:{pp}"
+            _setenv("PYTHONPATH", f"{lp}:{pp}")
+        if self.dir:
+            # Generate a file to set up the environment when debugging
+            with open(f'{self.pbdir}/env.sh', 'wt') as f:
+                f.write(f'#set up environment to run playbook directly.\n')
+                f.write(f'# . ./env.sh\n')
+                for key,val in _the_env.items():
+                    f.write(f'export {key}="{val}"\n')
 
     def run(self, testitem, playbook):
         if self.skip:
             pytest.skip('Failed to create playbook test environment (conftest.py)')
             return
         pb_name = f'{playbook.name}'
-        pb = Path(f'{self.pbdir}/{pb_name}')
-        copyfile(playbook, pb)
         if self.debugging:
             cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, '-vvvvv', pb_name)
         else:
@@ -127,6 +180,8 @@ class PlaybookTestEnv:
             raise AssertionError(f"ansible-playbook failed: return code is {result.returncode}")
 
     def cleanup(self):
+        if self.pbh:
+            return
         if self.dir and not (self.debugging and self.testfailed):
             rmtree(self.dir)
 

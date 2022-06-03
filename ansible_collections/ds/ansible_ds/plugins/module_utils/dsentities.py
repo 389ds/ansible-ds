@@ -50,7 +50,6 @@ import socket
 import random
 from shutil import copyfile
 from tempfile import TemporaryDirectory
-from ldap.ldapobject import SimpleLDAPObject
 from lib389 import DirSrv
 from lib389.dseldif import DSEldif
 from lib389.backend import Backend
@@ -58,7 +57,7 @@ from lib389.instance.setup import SetupDs
 from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
 
 from configparser import ConfigParser
-from .dsutil import NormalizedDict, DSE, DiffResult, getLogger
+from .dsutil import NormalizedDict, DSE, DiffResult, getLogger, add_s, delete_s, modify_s
 
 ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
@@ -393,8 +392,8 @@ class MyYAMLObject(yaml.YAMLObject):
     def getAllActions(self, facts):
         actions = []
         for option in self.OPTIONS:
-            vfrom = getattr(facts, option.name, None)
-            vto = getattr(self, option.name, None)
+            vfrom = str(getattr(facts, option.name, None))
+            vto = str(getattr(self, option.name, None))
             for action in option._get_action(self, facts, vfrom, vto):
                 actions.append(action)
         return sorted(actions, key = lambda x : x.getPrio())
@@ -939,13 +938,13 @@ class YAMLInstance(MyYAMLObject):
                         assert len(actionDict) == 1
                         log.info(f"YAMLInstance.applyMods: add({dn}, {modList})")
                         try:
-                            SimpleLDAPObject.add_s(dirSrv, dn, modList)
+                            add_s(dirSrv, dn, modList)
                         except ldap.ALREADY_EXISTS:
                             log.info(f"YAMLInstance.applyMods: add returned ldap.ALREADY_EXISTS")
                     elif DiffResult.DELETEENTRY in actionDict:
                         assert len(actionDict) == 1
                         log.info(f"YAMLInstance.applyMods: delete({dn})")
-                        SimpleLDAPObject.delete_s(dirSrv, dn)
+                        delete_s(dirSrv, dn)
                     elif action == DiffResult.ADDVALUE:
                         modList.append( (ldap.MOD_ADD, attr, ensure_list_bytes(vals)) )
                     elif action == DiffResult.DELETEVALUE:
@@ -961,7 +960,7 @@ class YAMLInstance(MyYAMLObject):
 
             if len(modList) > 0:
                 log.info(f"YAMLInstance.applyMods: modify({dn}, {modList})")
-                SimpleLDAPObject.modify_s(dirSrv, dn, modList)
+                modify_s(dirSrv, dn, modList)
         if not started:
             dirSrv.stop()
         # Config changed so reload the dse.ldif next time we need it
