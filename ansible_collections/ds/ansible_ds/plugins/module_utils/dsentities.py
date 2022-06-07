@@ -618,7 +618,6 @@ class YAMLInstance(MyYAMLObject):
             if isinstance(action.option, ConfigOption):
                 action.perform(OptionAction.CONFIG)
         s = SetupDs(log=log)
-        config.write(sys.stdout)
         general, slapd, backends = s._validate_ds_config(config)
         s.create_from_args(general, slapd, backends)
         inst = DirSrv()

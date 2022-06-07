@@ -30,7 +30,9 @@ install:
 	cd ansible_collections ; ansible-galaxy collection install $B -f
 
 unit_test: clean $B install
-	cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
+    # ansible-test seems to do its own test collection and ignore yml test so use directly pytest
+	#cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
+	pytest -vvvvv ansible_collections/$N/$M/tests
 
 
 prereq:

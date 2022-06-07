@@ -1,6 +1,7 @@
----
 - name: Playbook to gather DS instance info
   hosts: localhost
+  collections:
+    - ds.ansible_ds
 
   roles:
   - role: install_dspkg
