@@ -24,7 +24,7 @@ if "LIB389PATH" in os.environ:
 from lib389.topologies import topology_m2 as topo_m2    # pylint: disable=wrong-import-position
 
 
-def test_info1(topo_m2, ansibletest):
+def test_info(topo_m2, ansibletest):
     """Test dsinfo module #1.
         Setup: two suppliers
         Step 1: Run ds_info module
@@ -40,7 +40,7 @@ def test_info1(topo_m2, ansibletest):
     result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'result={result}')
     assert 'my_useful_info' in result
-    assert ansibletest.getInstanceAttr('supplier1', 'name') == 'supplier1'
-    assert ansibletest.getInstanceAttr('supplier2', 'name') == 'supplier2'
-    assert ansibletest.getBackendAttr('supplier1', 'userroot', 'name') == 'userroot'
-    assert ansibletest.getBackendAttr('supplier2', 'userroot', 'name') == 'userroot'
+    assert ansibletest.getInstanceAttr('supplier1', 'state') == 'present'
+    assert ansibletest.getInstanceAttr('supplier2', 'state') == 'present'
+    assert ansibletest.getBackendAttr('supplier1', 'userroot', 'state') == 'present'
+    assert ansibletest.getBackendAttr('supplier2', 'userroot', 'state') == 'present'

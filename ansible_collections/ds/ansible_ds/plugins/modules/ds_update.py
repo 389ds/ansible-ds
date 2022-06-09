@@ -16,12 +16,12 @@ DOCUMENTATION = r'''
 ---
 module: ds_info
 
-short_description: This imodule provides info on the ldap server instances available on the local host.
+short_description: This module provides method to update the ldap server instances available on the local host.
 
 version_added: "1.0.0"
 
 description:
-    - This module allow to collect the state of all the ds389 (or RHDS) instances on the local host.
+    - This module allow to update the state of the ds389 (or RHDS) instances on the local host.
 
 options:
     prefix:
@@ -68,28 +68,33 @@ my_useful_info:
     }
 '''
 
-from ansible.module_utils.basic import AnsibleModule, env_fallback
+from ansible.module_utils.basic import AnsibleModule
 from pathlib import Path
 import sys
 import os
+import io
 import json
 import traceback
+import yaml
+import argparse
 
+# import the collection module_utils modules.
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
-    from module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLRoot, YAMLInstance, YAMLBackend, YAMLIndex
+    from module_utils.dsentities import YAMLRoot
+    from module_utils.dsutil import setLogger, getLogger, log
     from module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
 else:
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLRoot, YAMLInstance, YAMLBackend, YAMLIndex
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import YAMLRoot
     from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
-
 
 
 
 def run_module():
     # define available arguments/parameters a user can pass to the module
     module_args = dict(
-        prefix=dict(type='path', required=False, fallback=(env_fallback, ['PREFIX', 'INSTALL_PREFIX'])),
+        path=dict(type='path', required=False),
+        content=dict(type='raw', required=False),
     )
 
     # seed the result dict in the object
@@ -110,21 +115,9 @@ def run_module():
     # supports check mode
     module = AnsibleModule(
         argument_spec=module_args,
+        mutually_exclusive=[ ('path', 'content'), ],
         supports_check_mode=True
     )
-
-    # if the user is working with this module in only check mode we do not
-    # want to make any changes to the environment, just return the current
-    # state with no modifications
-    if module.check_mode:
-        module.exit_json(**result)
-
-    # manipulate or modify the state as needed (this is going to be the
-    # part where your module will do what it needs to do)
-    if module.params['prefix'] is not None:
-        c='{}'
-        result['original_message'] = f"{c[0]}'prefix': {module.params['prefix']}{c[1]}"
-        os.environ['PREFIX'] = module.params['prefix']
 
     verbose=0
     if 'DEBUGGING' in os.environ:
@@ -133,21 +126,40 @@ def run_module():
     global log
     log = getLogger()
 
-    ### Create the main "Host" node containing this host instances
+    path = module.params['path']
+    content = module.params['content']
+
+    # Validate the parameter and get a YAMLRoot object
+    c="{}"
     try:
-        dsroot = YAMLRoot()
-        dsroot.getFacts()
+        if path:
+            wanted_state = YAMLRoot.from_path(path)
+        elif content:
+            wanted_state = YAMLRoot.from_content(content)
+        else:
+            wanted_state = YAMLRoot.from_stdin()
     except Exception as e:
-        print(traceback.format_exc(), file=sys.stderr)
-        module.fail_json(f'Failed to determine the ds389 instances state. error is {e}')
-        return
+        raise e
+        module.fail_json(f'Failed to validate the parameters. error is {e}')
+    result['original_message'] = wanted_state.todict()
+
+    log.debug(f"wanted_state={wanted_state}")
+    # Determine current state
+    host = YAMLRoot()
+    host.getFacts()
+    # Then change it
+    summary = []
+    wanted_state.update(facts=host, summary=summary, onlycheck=module.check_mode)
+    result['my_useful_info'] =  { "msgs": summary }
     result['message'] = 'goodbye'
-    result['my_useful_info'] = {
-        **toAnsibleResult(dsroot.todict())
-    }
+    # Summary is a list of string describing the changes
+    # So config changed if the list is not empty
+    if summary:
+        result['changed'] = True
+
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
-    log.debug(json.dumps({**result}, sort_keys=True, indent=4))
+    log.debug(f"Result is: {json.dumps({**result}, sort_keys=True, indent=4)}")
     module.exit_json(**result)
 
 
@@ -156,11 +168,10 @@ def main():
 
 
 if __name__ == '__main__':
-    if 'test' in sys.argv:
-        buff = json.dumps( { "ANSIBLE_MODULE_ARGS": { "prefix" : os.getenv('PREFIX','') } } )
+    #sys.stdout = "foo"
+    p = os.getenv("DEBUG_DSUPDATE_MODULE", None)
+    if p:
+        buff = json.dumps( { "ANSIBLE_MODULE_ARGS": { "path" : p } } )
         sys.argv = [ sys.argv[0], buff ]
-    if 'test' in sys.argv:
-        buff = json.dumps( { "ANSIBLE_MODULE_ARGS": { "prefix" : os.getenv('PREFIX','') } } )
-        sys.stdin = io.TextIOWrapper(io.StringIO(buff))
     main()
 

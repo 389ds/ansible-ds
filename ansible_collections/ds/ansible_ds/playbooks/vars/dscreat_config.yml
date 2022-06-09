@@ -1,0 +1,19 @@
+# This files contains the variables to create a basic instance
+# This file is provided as example and should be customized.
+
+# Instance name
+instance: "myinstance"
+
+# Non secure port (could be 0 if there is no such port)
+port: 389
+
+# Secure port (playbook should be modified to remove this attribute if there is no such port)
+secure_port: 636
+
+# Backend map using the backend name: suffix notation 
+# ( The dscreate.yml playbook expect at list one backend )
+backends:
+    userroot: "dc=example,dc=com"
+    second: "dc=another example,dc=com"
+    peoplesubsuffix: "o=people,dc=example,dc=com"
+
