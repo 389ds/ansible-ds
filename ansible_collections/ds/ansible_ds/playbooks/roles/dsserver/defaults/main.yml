@@ -1,5 +1,5 @@
-# This files contains the variables to create a basic instance
-# This file is provided as example and should be customized.
+# This files contains the default variables to create the instances
+# These variables may be overwritten by the playbook variable
 
 # Instance name
 instance: "myinstance"
@@ -9,6 +9,9 @@ port: 389
 
 # Secure port (playbook should be modified to remove this attribute if there is no such port)
 secure_port: 636
+
+# default Directory manager password
+rootpw: "secret12"
 
 # Backend map using the backend name: suffix notation 
 # ( The dscreate.yml playbook expect at list one backend )

@@ -1,0 +1,13 @@
+
+# Instance parameter is a dict:
+#   Key is the associated ansiblr variable name
+#   Value is the dsentity module parameter name
+instance_parameters: "{{
+    {
+            'state': 'state',
+            'port': 'port',
+            'secure_port': 'secure_port',
+            'rootpw': 'root_password',
+            'bedict': 'backends',
+    }
+}}"

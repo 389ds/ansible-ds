@@ -1,0 +1,37 @@
+---
+
+- name: Install ds packages if they are missing.
+  ansible.builtin.include_role: 
+      name: install_dspkg
+  vars:
+      state: present
+
+# Let build the nested dict expected by the dsupdate module.
+- name: populate the backends dict variable
+  set_fact:
+    bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
+  loop: "{{ backends|dict2items }}"
+
+- name: populate the instance dict variable
+  # For each known parameter
+  set_fact:
+    # Add parameter to the dict if the associated ansible variable is defined
+    oneinstdict: "{{ oneinstdict|default({}) | combine( {item.value: vars[item.key]} ) }}"
+  when: "item.key is defined"
+  loop: "{{ instance_parameters|dict2items }}"
+
+- name: populate the instances dict variable
+  set_fact:
+    instdict:  "{{ { instance: oneinstdict } }}"
+
+# Now let call the plugin
+- name: debug instdict
+  debug:
+    var: instdict
+
+- ds.ansible_ds.ds_update:
+   content:
+      state: "present"
+      prefix:  "{{ lookup('env', 'PREFIX') | default('', True) }}"
+      instances: "{{instdict}}"
+  tags: vars

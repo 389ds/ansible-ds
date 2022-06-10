@@ -1,7 +1,0 @@
-instance: "i1"
-port: 38901
-secure_port: 63601
-backends:
-    userroot: "dc=example,dc=com"
-    second: "dc=another example,dc=com"
-

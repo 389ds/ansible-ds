@@ -20,6 +20,8 @@ import json
 import logging
 import subprocess
 import pytest
+from lib389.utils import get_instance_list
+from lib389 import DirSrv
 
 _the_env = {}
 
@@ -114,6 +116,7 @@ class PlaybookTestEnv:
 
         vault_pw_file = f'{vault_dir}/{PlaybookTestEnv.VAULT_PW_FILE}'
         vault_file = Path(f'{vault_dir}/{PlaybookTestEnv.VAULT_FILE}')
+        os.makedirs(vault_file.parent, mode=0o700, exist_ok=True)
         # Generate vault password file
         with open(vault_pw_file, 'wt') as f:
             f.write(PlaybookTestEnv.VAULT_PASSWORD)
@@ -126,11 +129,21 @@ class PlaybookTestEnv:
                 result = subprocess.run(cmd, encoding='utf8', text=True, input=val, capture_output=True)
                 f.write(result.stdout)
 
+    def _remove_all_instances():
+        for serverid in get_instance_list():
+            inst = DirSrv()
+            inst.local_simple_allocate(serverid)
+            inst.stop()
+            inst.delete()
+
     def __init__(self):
         self.testfailed = False
         self.skip = True
         self.dir = None
-        tarballpath = Path(f'{Path(IniFileConfig.BASE).parent.parent}/ds-ansible_ds-1.0.0.tar.gz')
+        self.pbh = None
+        acdir = Path(IniFileConfig.BASE).parent.parent
+        repodir = acdir.parent
+        tarballpath = Path(f'{acdir}/ds-ansible_ds-1.0.0.tar.gz')
         if tarballpath.exists():
             # Create a working directory for running the playbooks
             self.pbh = os.getenv('PLAYBOOKHOME', None)
@@ -156,11 +169,18 @@ class PlaybookTestEnv:
             _setenv("PYTHONPATH", f"{lp}:{pp}")
         if self.dir:
             # Generate a file to set up the environment when debugging
+            # (Usefull only if PLAYBOOKHOME is set in ~/.389ds-ansible.ini)
             with open(f'{self.pbdir}/env.sh', 'wt') as f:
                 f.write(f'#set up environment to run playbook directly.\n')
                 f.write(f'# . ./env.sh\n')
                 for key,val in _the_env.items():
                     f.write(f'export {key}="{val}"\n')
+                # Then update the collection from the repository
+                f.write(f'cd {repodir}\n')
+                f.write('make clean all\n')
+                f.write(f'cd {self.pbdir}\n')
+                f.write('/bin/rm -rf ansible_collections\n')
+                f.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
 
     def run(self, testitem, playbook):
         if self.skip:
@@ -171,10 +191,13 @@ class PlaybookTestEnv:
             cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, '-vvvvv', pb_name)
         else:
             cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, pb_name)
+        PlaybookTestEnv._remove_all_instances()
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=self.pbdir) # pylint: disable=subprocess-run-check
         testitem.add_report_section("call", "stdout", result.stdout)
         testitem.add_report_section("call", "stderr", result.stderr)
         testitem.add_report_section("call", "cwd", self.pbdir)
+        if not self.debugging:
+            PlaybookTestEnv._remove_all_instances()
         if result.returncode != 0:
             self.testfailed = True
             raise AssertionError(f"ansible-playbook failed: return code is {result.returncode}")
