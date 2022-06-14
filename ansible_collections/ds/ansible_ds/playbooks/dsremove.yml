@@ -1,0 +1,20 @@
+---
+- name: Playbook to create a DS instance
+  hosts: localhost
+
+  vars:
+    # In a real deployment, variables should be customized
+    # In this playbook all the variables are commented out because
+    # they are provided by the calling test playbook
+
+    # Optionnal variables:
+    # Description format is:  # variableName (default value) : description
+
+    # instance (myinstance) : Instance name
+
+  collections:
+    - ds.ansible_ds
+
+  roles:
+    - role: dsserver
+      state: absent

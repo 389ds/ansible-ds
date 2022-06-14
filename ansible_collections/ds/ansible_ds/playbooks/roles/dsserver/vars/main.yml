@@ -1,13 +1,23 @@
 
-# Instance parameter is a dict:
+# instance parameter is a dict:
 #   Key is the associated ansiblr variable name
 #   Value is the dsentity module parameter name
 instance_parameters: "{{
     {
-            'state': 'state',
-            'port': 'port',
-            'secure_port': 'secure_port',
-            'rootpw': 'root_password',
-            'bedict': 'backends',
+        'state': 'state',
+        'port': 'port',
+        'secure_port': 'secure_port',
+        'rootpw': 'root_password',
+        'bedict': 'backends',
+    }
+}}"
+
+# mandatory_variables parameter is a dict:
+#   Key is the associated ansiblr variable name
+#   Value is the parameter short description
+mandatory_variables: "{{
+    {
+        'state': 'The present/absent state',
+        'rootpw': 'The directory manager password',
     }
 }}"

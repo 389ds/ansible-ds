@@ -3,19 +3,16 @@
   hosts: localhost
 
   vars:
-    # Note: all variables values have be set to be 
-    # Instance name
-    instance: "i1"
+    # In a real deployment, variables should be customized
+    # In this playbook all the variables are commented out because
+    # they are provided by the calling test playbook
 
-    # Non secure port (could be 0 if there is no such port)
-    port: 38901
+    # Mandatory variables:
 
-    # Secure port (could be 0 if there is no such port)
-    secure_port: 63601
-
-    # default Directory manager password
-    # here it is inherited from calling test playbook by it should be set by using:
-    #  echo "password" | ansible-vault encrypt_string --stdin-name rootpw
+    # rootpw: The default Directory manager password
+    # In real deployment it should be set by using:
+    #  ansible-vault encrypt_string --stdin-name rootpw
+    # i.e:
     #rootpw: !vault |
     #     $ANSIBLE_VAULT;1.1;AES256
     #     65386361623432656133343230333636626164353230623935616632636361356265623530366232
@@ -24,18 +21,18 @@
     #     3435303734383335390a323638313539333338313866636134393731306162343837393966333735
     #     6134
 
-    # Backend map using the backend name: suffix notation
-    # ( The dscreate.yml playbook expect at list one backend )
-    backends:
-        userroot: "dc=example,dc=com"
-        second: "dc=another example,dc=com"
-        peoplesubsuffix: "o=people,dc=example,dc=com"
+    # Optionnal variables:
+    # Description format is:  # variableName (default value) : description
+
+    # instance (myinstance) : Instance name
+    # port (389) : Non secure port (could be 0 if there is no such port)
+    # secure_port (636) : Secure port (could be 0 if there is no such port)
+    # backends (None): Backend map using the backend name: suffix notation
 
 
   collections:
     - ds.ansible_ds
 
   roles:
-  #- role: ansible_collections/ds/ansible_ds/playbooks/dsserver
-  - role: dsserver
-    state: present
+    - role: dsserver
+      state: present

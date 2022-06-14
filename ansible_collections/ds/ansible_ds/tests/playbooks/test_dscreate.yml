@@ -1,8 +1,18 @@
 ---
 - hosts: localhost
+
   tasks:
     - name: load encrypted variables
       include_vars: "vault.yml"
 
 - name: Run ds.ansible_ds.dscreate.yml
   import_playbook: ansible_collections/ds/ansible_ds/playbooks/dscreate.yml
+  vars:
+    #rootpw: is impoorted from vault.yml
+    instance: "i1"
+    port: 38901
+    secure_port: 63601
+    backends:
+        userroot: "dc=example,dc=com"
+        second: "dc=another example,dc=com"
+        peoplesubsuffix: "o=people,dc=example,dc=com"

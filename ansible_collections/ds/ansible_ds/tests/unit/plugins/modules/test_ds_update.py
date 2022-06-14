@@ -58,15 +58,23 @@ config_2i={
     "state": "present"
 }
 
-def test_info(ansibletest):
+def test_dscreate_is_idempotent(ansibletest):
     """Test dsinfo module #1.
         Setup: None
         Step 1: Ensure that i1 and i2 instances does not exist
         Step 2: Run ds_update module
         Step 3: Verify that i1 ande i2 instances exists.
+        Step 4: Verify changed is true
+        Step 5: Run again ds_update module
+        Step 6: Verify changed is false
+        Step 7: Perform cleanup
         Result 1: No error
         Result 3: No error
         Result 3: Instances should exist and be started.
+        Result 4: change should be true
+        Result 5: No error
+        Result 6: change should be false
+        Result 7: No error
     """
 
     log = ansibletest.getLog(__name__)
@@ -86,3 +94,14 @@ def test_info(ansibletest):
     for srv in instances:
         assert srv.exists()
         assert srv.status()
+    # Step 4: Verify changed is true
+    assert result['changed'] is True
+    # Step 5: Run again ds_update module
+    result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
+    log.info(f'second result={result}')
+    # Step 6: Verify changed is false
+    assert result['changed'] is False
+    # Step 7: Perform cleanup
+    for srv in instances:
+        if srv.exists():
+            srv.delete()

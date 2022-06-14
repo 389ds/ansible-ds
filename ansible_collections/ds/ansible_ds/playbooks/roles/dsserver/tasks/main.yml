@@ -1,24 +1,44 @@
 ---
 
 - name: Install ds packages if they are missing.
-  ansible.builtin.include_role: 
+  ansible.builtin.include_role:
       name: install_dspkg
   vars:
       state: present
 
-# Let build the nested dict expected by the dsupdate module.
-- name: populate the backends dict variable
-  set_fact:
-    bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
-  loop: "{{ backends|dict2items }}"
+# if state is present
+- block:
+  # Check that mandatory variables are defined
+  - name: Check that manadatory variables are defined.
+    assert:
+      that:
+        - "{{ item.key }} is defined"
+        - "{{ item.key }} | length > 0"
+        - "{{ item.key }} != None"
+      fail_msg: "{{ item.key }} ({{ item.value }}) needs to be set for the role to work"
+      success_msg: "Required variable {{ item.key }} is defined"
+    loop: "{{ mandatory_variables|dict2items }}"
 
-- name: populate the instance dict variable
-  # For each known parameter
-  set_fact:
-    # Add parameter to the dict if the associated ansible variable is defined
-    oneinstdict: "{{ oneinstdict|default({}) | combine( {item.value: vars[item.key]} ) }}"
-  when: "item.key is defined"
-  loop: "{{ instance_parameters|dict2items }}"
+  # Let build the nested dict expected by the dsupdate module.
+  - name: populate the backends dict variable
+    set_fact:
+      bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
+    loop: "{{ backends|dict2items }}"
+
+  - name: populate the instance dict variable
+    # For each known parameter
+    set_fact:
+      # Add parameter to the dict if the associated ansible variable is defined
+      oneinstdict: "{{ oneinstdict|default({}) | combine( {item.value: vars[item.key]} ) }}"
+    when: "item.key is defined"
+    loop: "{{ instance_parameters|dict2items }}"
+  when: ( state is not defined ) or ( state == 'present' )
+
+# else if state is absent
+- set_fact:
+    # Let build the nested dict expected by the dsupdate module
+    oneinstdict: { state: 'absent' }
+  when: ( state == 'absent' )
 
 - name: populate the instances dict variable
   set_fact:
@@ -31,6 +51,8 @@
 
 - ds.ansible_ds.ds_update:
    content:
+      # At the global level state is always present
+      # to avoid removing ALL instances
       state: "present"
       prefix:  "{{ lookup('env', 'PREFIX') | default('', True) }}"
       instances: "{{instdict}}"
