@@ -23,9 +23,9 @@
   - name: populate the backends dict variable
     set_fact:
       bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
-    loop: "{{ backends|dict2items }}"
+    loop: "{{ dsserver_backends|dict2items }}"
 
-  - name: populate the instance dict variable
+  - name: populate the instance dict variable when state is 'present'
     # For each known parameter
     set_fact:
       # Add parameter to the dict if the associated ansible variable is defined
@@ -40,9 +40,9 @@
     oneinstdict: { state: 'absent' }
   when: ( state == 'absent' )
 
-- name: populate the instances dict variable
+- name: populate the instances dict variable when state is 'absent'
   set_fact:
-    instdict:  "{{ { instance: oneinstdict } }}"
+    instdict:  "{{ { dsserver_instance: oneinstdict } }}"
 
 # Now let call the plugin
 - name: debug instdict

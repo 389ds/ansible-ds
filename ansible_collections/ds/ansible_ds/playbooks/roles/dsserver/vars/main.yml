@@ -5,9 +5,9 @@
 instance_parameters: "{{
     {
         'state': 'state',
-        'port': 'port',
-        'secure_port': 'secure_port',
-        'rootpw': 'root_password',
+        'dsserver_port': 'port',
+        'dsserver_secure_port': 'secure_port',
+        'dsserver_rootpw': 'root_password',
         'bedict': 'backends',
     }
 }}"
@@ -18,6 +18,6 @@ instance_parameters: "{{
 mandatory_variables: "{{
     {
         'state': 'The present/absent state',
-        'rootpw': 'The directory manager password',
+        'dsserver_rootpw': 'The directory manager password',
     }
 }}"

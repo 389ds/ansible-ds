@@ -2,9 +2,9 @@
 # These variables may be overwritten by the playbook variable
 
 # Instance name
-instance: "myinstance"
+dsserver_instance: "default"
 
 # Backend map using the backend name: suffix notation 
 # ( The dscreate.yml playbook expect at list one backend )
-backends: { }
+dsserver_backends: { }
 

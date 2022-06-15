@@ -9,11 +9,11 @@
 
     # Mandatory variables:
 
-    # rootpw: The default Directory manager password
+    # dsserver_rootpw: The default Directory manager password
     # In real deployment it should be set by using:
-    #  ansible-vault encrypt_string --stdin-name rootpw
+    #  ansible-vault encrypt_string --stdin-name dsserver_rootpw
     # i.e:
-    #rootpw: !vault |
+    #dsserver_rootpw: !vault |
     #     $ANSIBLE_VAULT;1.1;AES256
     #     65386361623432656133343230333636626164353230623935616632636361356265623530366232
     #     6662333634333066613430616461623433633766333936330a616239636266666465343235316666
@@ -24,10 +24,10 @@
     # Optionnal variables:
     # Description format is:  # variableName (default value) : description
 
-    # instance (myinstance) : Instance name
-    # port (389) : Non secure port (could be 0 if there is no such port)
-    # secure_port (636) : Secure port (could be 0 if there is no such port)
-    # backends (None): Backend map using the backend name: suffix notation
+    # dsserver_instance (myinstance) : Instance name
+    # dsserver_port (389) : Non secure port (could be 0 if there is no such port)
+    # dsserver_secure_port (636) : Secure port (could be 0 if there is no such port)
+    # dsserver_backends (None): Backend map using the backend name: suffix notation
 
 
   collections:

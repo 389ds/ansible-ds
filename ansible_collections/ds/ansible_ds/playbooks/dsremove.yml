@@ -10,7 +10,7 @@
     # Optionnal variables:
     # Description format is:  # variableName (default value) : description
 
-    # instance (myinstance) : Instance name
+    # dsserver_instance (myinstance) : Instance name
 
   collections:
     - ds.ansible_ds

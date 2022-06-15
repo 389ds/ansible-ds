@@ -106,8 +106,8 @@ class PlaybookTestEnv:
     VAULT_PASSWORD = 'A very big secret!'
     # Test value of some encryted variables
     SECRETS = {
-        'rootpw' : 'secret12',
-        'replmgrpw' : 'repl-secret',
+        'dsserver_rootpw' : 'secret12',
+        'dsserver_replmgrpw' : 'repl-secret',
     }
 
     def _init_vault(vault_dir):
