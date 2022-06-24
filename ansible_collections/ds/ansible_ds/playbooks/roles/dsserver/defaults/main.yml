@@ -1,10 +1,6 @@
 # This files contains the default variables to create the instances
 # These variables may be overwritten by the playbook variable
 
-# Instance name
-dsserver_instance: "default"
-
-# Backend map using the backend name: suffix notation 
-# ( The dscreate.yml playbook expect at list one backend )
 dsserver_backends: { }
 
+dsserver_prefix: "{{ lookup('env', 'PREFIX') | default('', True) }}"

@@ -9,7 +9,7 @@
 #
 
 #
-# Usage: j2y.py json_file_path
+# Usage: json2yaml.py json_file_path
 #  Generate a json_file_path.yml file containing the YAML
 #
 # Example: to collect ds state then replay then:

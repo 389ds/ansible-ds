@@ -3,6 +3,7 @@ N=ds
 M=ansible_ds
 V=1.0.0
 B=$N-$M-$V.tar.gz
+SRCBASE=ansible_collections/$N/$M
 
 all: clean $B install
 
@@ -22,7 +23,7 @@ precommit_notest: clean
 
 build: $B
 
-$B:
+$B: gensrc
 	/bin/rm -f ansible_collections/$B
 	cd ansible_collections ; ansible-galaxy collection build -f $N/$M
 
@@ -43,6 +44,15 @@ lint:
 	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
 	#cd ansible_collections/ds/ansible_ds/tests; py.test --pylint
 
+gensrc: $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py $(SRCBASE)/plugins/module_utils/dsentities_options.py
+
+$(SRCBASE)/plugins/doc_fragments/dsserver_doc.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
+	python ./utils/gendoc.py doc > $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py.tmp
+	mv -f $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py.tmp $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py
+
+$(SRCBASE)/plugins/module_utils/dsentities_options.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
+	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp
+	mv -f $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp $(SRCBASE)/plugins/module_utils/dsentities_options.py
 
 # Create an ini file that could be customized to run the unit_test
 INIFILE=$(HOME)/.389ds-ansible.ini

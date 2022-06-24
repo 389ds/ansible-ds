@@ -7,7 +7,7 @@
 #
 #
 
-""" This module contains the testcases fore ds_update ansible module."""
+""" This module contains the testcases fore ds_server ansible module."""
 
 # Disable pylint warning triggered by standard fixture usage
 # pylint: disable=redefined-outer-name
@@ -27,33 +27,38 @@ from lib389.properties import SER_SERVERID_PROP
 DIRECTORY_MANAGER_PASSWORD = "secret12"
 
 config_2i={
-    "instances": {
-        "i1": {
-            "backends": {
-                "userroot": {
+    "instances": [
+        {
+            "name": "i1",
+            "backends": [
+                {
+                    "name": "userroot",
                     "state": "present",
-                    "suffix": "dc=example,dc=com"
+                    "suffix": "dc=example,dc=com",
                 }
-            },
-            "root_password" : DIRECTORY_MANAGER_PASSWORD,
+            ],
+            "rootpw" : DIRECTORY_MANAGER_PASSWORD,
             "port": "38901",
             "secure_port": "63601",
             "started": "true",
-            "state": "present"
+            "state": "present",
         },
-        "i2": {
-            "backends": {
-                "userroot": {
-                "state": "present",
-                "suffix": "dc=example,dc=com"}
-            },
-            "root_password" : DIRECTORY_MANAGER_PASSWORD,
+        {
+            "name": "i2",
+            "backends": [
+                {
+                    "name": "userroot",
+                    "state": "present",
+                    "suffix": "dc=example,dc=com",
+                }
+            ],
+            "rootpw" : DIRECTORY_MANAGER_PASSWORD,
             "port": "38902",
             "secure_port": "63602",
             "started": "true",
-            "state": "present"
-        }
-    },
+            "state": "present",
+        },
+    ],
     "prefix": os.getenv("PREFIX",""),
     "state": "present"
 }
@@ -62,10 +67,10 @@ def test_dscreate_is_idempotent(ansibletest):
     """Test dsinfo module #1.
         Setup: None
         Step 1: Ensure that i1 and i2 instances does not exist
-        Step 2: Run ds_update module
+        Step 2: Run ds_server module
         Step 3: Verify that i1 ande i2 instances exists.
         Step 4: Verify changed is true
-        Step 5: Run again ds_update module
+        Step 5: Run again ds_server module
         Step 6: Verify changed is false
         Step 7: Perform cleanup
         Result 1: No error
@@ -86,7 +91,7 @@ def test_dscreate_is_idempotent(ansibletest):
         instances.append(srv)
         if srv.exists():
             srv.delete()
-    # Step 2: Run ds_update module
+    # Step 2: Run ds_server module
     args = { "content" : config_2i }
     result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'result={result}')
@@ -96,7 +101,7 @@ def test_dscreate_is_idempotent(ansibletest):
         assert srv.status()
     # Step 4: Verify changed is true
     assert result['changed'] is True
-    # Step 5: Run again ds_update module
+    # Step 5: Run again ds_server module
     result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'second result={result}')
     # Step 6: Verify changed is false

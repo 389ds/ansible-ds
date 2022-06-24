@@ -1,5 +1,5 @@
 ---
-- name: Playbook to create a DS instance
+- name: Playbook to create a iset of DS instances
   hosts: localhost
 
   vars:

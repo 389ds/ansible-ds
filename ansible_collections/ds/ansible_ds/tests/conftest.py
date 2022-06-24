@@ -128,6 +128,7 @@ class PlaybookTestEnv:
                 cmd =  ( 'ansible-vault', 'encrypt_string', '--stdin-name', key )
                 result = subprocess.run(cmd, encoding='utf8', text=True, input=val, capture_output=True)
                 f.write(result.stdout)
+                f.write('\n')
 
     def _remove_all_instances():
         for serverid in get_instance_list():
@@ -295,6 +296,12 @@ class AnsibleTest:
         cmd = _CONFIG.getPath(f'plugins/{self.module.replace(".","/")}.py')
         return self.runModule(cmd, stdin_text)
 
+    def lookup(self, obj, name):
+        for item in obj:
+            if item['name'] == name:
+                return item
+        raise KeyError(f'No children entity named {name} in {obj.name}.')
+
 
     def listInstances(self):
         """return the list of ds389 instances (extracted from runModule result)."""
@@ -302,7 +309,7 @@ class AnsibleTest:
 
     def getInstanceAttr(self, instname, attr):
         """Return an instance attribute (extracted from runModule result)."""
-        return self.result['my_useful_info']['instances'][instname][attr]
+        return self.lookup(self.result['my_useful_info']['instances'], instname)[attr]
 
     def listBackends(self, instname):
         """return the list of backends of a ds389 instances (extracted from runModule result)."""
@@ -312,7 +319,7 @@ class AnsibleTest:
     def getBackendAttr(self, instname, bename, attr):
         """return a backend attribute (extracted from runModule result)."""
         backends = self.getInstanceAttr(instname, 'backends')
-        return backends[bename][attr]
+        return self.lookup(backends, bename)[attr]
 
 
 @pytest.fixture(scope='function')

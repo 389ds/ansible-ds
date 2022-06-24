@@ -8,11 +8,35 @@
 - name: Run ds.ansible_ds.dscreate.yml
   import_playbook: ansible_collections/ds/ansible_ds/playbooks/dscreate.yml
   vars:
-    #dsserver_rootpw: is impoorted from vault.yml
-    dsserver_instance: "i1"
-    dsserver_port: 38901
-    dsserver_secure_port: 63601
-    dsserver_backends:
-        userroot: "dc=example,dc=com"
-        second: "dc=another example,dc=com"
-        peoplesubsuffix: "o=people,dc=example,dc=com"
+    #dsserver_rootpw: is imported from vault.yml
+    dsserver_instances:
+        -
+            name: i1
+            rootpw: "{{dsserver_rootpw}}"
+            port: 38901
+            secure_port: 63601
+            backends:
+                -
+                    name: "userroot"
+                    suffix: "dc=example,dc=com"
+                -
+                    name: "second"
+                    suffix: "dc=another example,dc=com"
+                -
+                    name: "peoplesubsuffix"
+                    suffix: "o=people,dc=example,dc=com"
+        -
+            name: i2
+            rootpw: "{{dsserver_rootpw}}"
+            port: 38902
+            secure_port: 63602
+            backends:
+                -
+                    name: "userroot"
+                    suffix: "dc=example,dc=com"
+                -
+                    name: "second"
+                    suffix: "dc=another example,dc=com"
+                -
+                    name: "peoplesubsuffix"
+                    suffix: "o=people,dc=example,dc=com"
