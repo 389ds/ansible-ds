@@ -1047,10 +1047,10 @@ class YAMLInstance(MyYAMLObject):
                 summary.extend((f'Removing instance {self.name}',))
                 if onlycheck:
                     return
-                inst = self.getInstance(mode=YAMLInstance.DIRSRV_LDAPI)
+                inst = self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
                 inst.delete()
                 if facts:
-                    pop(action.facts._parent.instances, self.name, None)
+                    getattr(facts, 'instances').pop(self.name, None)
             return
         elif isTrue(self.started):
             wantedstate = "started"
@@ -1076,7 +1076,7 @@ class YAMLInstance(MyYAMLObject):
 
     def filterOps(self, dirSrv, mods, overwrite):
         ops=[]
-        log.debug(f'YAMLInstance.filterOps mods={type(mods)}: {mods}') 
+        log.debug(f'YAMLInstance.filterOps mods={type(mods)}: {mods}')
         for dn, actionDict in mods.items():
             entry = Entry.fromDS(dirSrv, dn)
             for action in actionDict.keys():
@@ -1144,7 +1144,7 @@ class YAMLInstance(MyYAMLObject):
         if self._getInstanceStatus(dirSrv) != "absent":
             ops = self.filterOps(dirSrv, mods, (self.state=="overwrite"))
             if not onlycheck:
-                try: 
+                try:
                     LdapOp.apply_list_op(ops, dirSrv)
                 except ldap.UNWILLING_TO_PERFORM:
                     self.applyOpsOffLine(dirSrv, mods, modsPerformed, onlycheck)
@@ -1153,8 +1153,8 @@ class YAMLInstance(MyYAMLObject):
                 else:
                     dirSrv.start()
             for op in ops:
-                summary.extend((str(op),)) 
-            
+                summary.extend((str(op),))
+
     def applyOpsOffLine(self, dirSrv, dict, modsPerformed, onlycheck):
         dirSrv.stop()
         raise NotImplementedError("Code not yet implemented.")
@@ -1195,6 +1195,14 @@ class YAMLRoot(MyYAMLObject):
     def __init__(self, name=ROOT_ENTITY):
         super().__init__(name)
         self.prefix = self.getPath('{prefix}')
+
+    def tolist(self):
+        d = super().tolist()
+        res = {}
+        for key,val in { 'instances': 'dsserver_instances', 'prefix': 'dsserver_prefix', 'state': 'state' }.items():
+            if key in d:
+                res[val] = d[key]
+        return res
 
     def MyPathNames(self):
         return { 'hostname' : self.name, 'prefix' : os.environ.get('PREFIX', "") }

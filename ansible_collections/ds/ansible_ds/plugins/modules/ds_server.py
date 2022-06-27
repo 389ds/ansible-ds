@@ -86,7 +86,7 @@ original_message:
     returned: always
     sample: {
         "state": "present",
-            "instances": [
+        "dsserver_instances": [
             {
                 "state": "present",
                 "backends": [
@@ -122,7 +122,7 @@ original_message:
                 "name": "i2"
             }
         ],
-        "prefix": "/home/progier/sb/ai1/tst/ci-install"
+        "dsserver_prefix": "/home/progier/sb/ai1/tst/ci-install"
     }
 
 message:

@@ -129,15 +129,7 @@ Playbooks
 The example playbooks are part of the repository in the playbooks folder.
 
 ```
-backup_instance.yml
-backup_server_to_controller.yml
-copy_all_backups_from_server.yml
-copy_backup_from_server.yml
-remove_all_backups_from_server.yml
-remove_backup_from_server.yml
-restore_server.yml
-restore_server_from_controller.yml
-copy_backup_from_controller.yml
+dscreate.yml
 ```
 
 
@@ -156,8 +148,8 @@ Special Variables
 
 Variable | Description | Required
 -------- | ----------- | --------
-instances | a list of dict containing the instance configuration (see ds_server module documentation to get the full duescription) (default is empty list) | no
-prefix | the directory server installation prefix (default is '') | no
+dsserver_instances | a list of dict containing the instance configuration (see ds_server module documentation to get the full duescription) (default is empty list) | no
+dsserver_prefix | the directory server installation prefix (default is '') | no
 
 Authors
 =======

@@ -1,5 +1,5 @@
 ---
-- name: Playbook to create a DS instance
+- name: Playbook to remove a DS instance
   hosts: localhost
 
   vars:
@@ -9,12 +9,18 @@
 
     # Optionnal variables:
     # Description format is:  # variableName (default value) : description
+    # dsserver_instances (empty list) : list of dict with instance name and state 'absent'
 
-    # dsserver_instance (myinstance) : Instance name
+    # Example:
+    # dsserver_instances:
+    #    -
+    #        name: i1
+    #        state: absent
+    # dsserver_prefix: ''
 
   collections:
     - ds.ansible_ds
 
   roles:
     - role: dsserver
-      state: absent
+      state: present
