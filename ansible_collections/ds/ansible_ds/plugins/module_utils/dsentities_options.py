@@ -16,33 +16,20 @@
 
 CONTENT_OPTIONS = {
     'state': {
-        'description': """'state' option determines how the other option are handled:
-                     If 'present' then specified options are added.
-                     If 'absent' then specified options are removed.
-                     If 'overwritten' then specified options are added and non specified options are removed.""",
-        'type': 'str',
-        'required': False,
-        'default': 'present',
-        'choices': (
-            'present',
-            'absent',
-            'overwritten',
-        ),
-    },
-    'prefix': {
-        'description': '389 Directory Service non standard installation path.',
-        'required': False,
-        'type': 'str',
-    },
-    'state': {
         'description': """If 'state' is 'absent' then all instances are removed.""",
         'required': False,
+        'default': 'present',
         'type': 'str',
         'choices': (
             'present',
             'updated',
             'absent',
         ),
+    },
+    'prefix': {
+        'description': '389 Directory Service non standard installation path.',
+        'required': False,
+        'type': 'str',
     },
     'instances': {
         'description': 'List of instances options.',
@@ -56,17 +43,14 @@ CONTENT_OPTIONS = {
                 'required': True,
             },
             'state': {
-                'description': """'state' option determines how the other option are handled:
-                     If 'present' then specified options are added.
-                     If 'absent' then specified options are removed.
-                     If 'overwritten' then specified options are added and non specified options are removed.""",
-                'type': 'str',
+                'description': 'Indicate whether the instance is added(present), modified(updated), or removed(absent).',
                 'required': False,
                 'default': 'present',
+                'type': 'str',
                 'choices': (
                     'present',
+                    'updated',
                     'absent',
-                    'overwritten',
                 ),
             },
             'backup_dir': {
@@ -128,13 +112,13 @@ CONTENT_OPTIONS = {
                 'required': False,
                 'type': 'str',
             },
-            'instance_name': {
-                'description': 'Sets the name of the instance..',
+            'inst_dir': {
+                'description': 'Directory containing instance-specific scripts.',
                 'required': False,
                 'type': 'str',
             },
-            'inst_dir': {
-                'description': 'Directory containing instance-specific scripts.',
+            'instance_name': {
+                'description': 'Sets the name of the instance..',
                 'required': False,
                 'type': 'str',
             },
@@ -163,15 +147,91 @@ CONTENT_OPTIONS = {
                 'required': False,
                 'type': 'str',
             },
+            'nsslapd_backend_opt_level': {
+                'description': 'This parameter can trigger experimental code to improve write performance.',
+                'required': False,
+                'default': '1',
+                'type': 'int',
+            },
+            'nsslapd_directory': {
+                'description': 'Default database directory.',
+                'required': False,
+                'default': '{prefix}/var/lib/dirsrv/slapd-{instname}/db',
+                'type': 'str',
+            },
+            'nsslapd_exclude_from_export': {
+                'description': 'list of attributes that are not exported.',
+                'required': False,
+                'default': 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn',
+                'type': 'str',
+            },
+            'nsslapd_idlistscanlimit': {
+                'description': 'The maximum number of entries a given index key may refer before the index is handled as unindexed..',
+                'required': False,
+                'default': '4000',
+                'type': 'int',
+            },
+            'nsslapd_import_cachesize': {
+                'description': 'Size of database cache when doing an import.',
+                'required': False,
+                'default': '16777216',
+                'type': 'int',
+            },
+            'nsslapd_lookthroughlimit': {
+                'description': 'The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
+                'required': False,
+                'default': '5000',
+                'type': 'int',
+            },
+            'nsslapd_mode': {
+                'description': 'The database permission (mode) in octal.',
+                'required': False,
+                'default': '600',
+                'type': 'int',
+            },
+            'nsslapd_pagedidlistscanlimit': {
+                'description': 'idllistscanlimit when performing a paged search.',
+                'required': False,
+                'default': '0',
+                'type': 'int',
+            },
+            'nsslapd_pagedlookthroughlimit': {
+                'description': 'lookthroughlimit when performing a paged search.',
+                'required': False,
+                'default': '0',
+                'type': 'int',
+            },
+            'nsslapd_rangelookthroughlimit': {
+                'description': 'Sets a separate range look-through limit that applies to all users, including Directory Manager.',
+                'required': False,
+                'default': '5000',
+                'type': 'int',
+            },
+            'nsslapd_search_bypass_filter_test': {
+                'description': """Allowed values are: 'on', 'off' or 'verify'. If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries.""",
+                'required': False,
+                'default': 'on',
+                'type': 'str',
+                'choices': (
+                    'on',
+                    'off',
+                    'verify',
+                ),
+            },
+            'nsslapd_search_use_vlv_index': {
+                'description': 'enables and disables virtual list view (VLV) searches.',
+                'required': False,
+                'default': 'on',
+                'type': 'str',
+                'choices': (
+                    'on',
+                    'off',
+                ),
+            },
             'port': {
                 'description': 'Sets the TCP port the instance uses for LDAP connections.',
                 'required': False,
                 'type': 'int',
-            },
-            'prefix': {
-                'description': 'Sets the file system prefix for all other directories. Should be the same as the $PREFIX environment variable when using dsconf/dsctl/dscreate.',
-                'required': False,
-                'type': 'str',
             },
             'root_dn': {
                 'description': """Sets the Distinquished Name (DN) of the administrator account for this instance. It is recommended that you do not change this value from the default 'cn=Directory Manager'.""",
@@ -221,6 +281,7 @@ CONTENT_OPTIONS = {
             'started': {
                 'description': 'Indicate whether the instance is (or should be) started.',
                 'required': False,
+                'default': True,
                 'type': 'bool',
             },
             'strict_host_checking': {
@@ -248,97 +309,6 @@ CONTENT_OPTIONS = {
                 'required': False,
                 'type': 'str',
             },
-            'nsslapd_lookthroughlimit': {
-                'description': 'The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
-                'required': False,
-                'default': '5000',
-                'type': 'int',
-            },
-            'nsslapd_mode': {
-                'description': 'The database permission (mode) in octal.',
-                'required': False,
-                'default': '600',
-                'type': 'int',
-            },
-            'nsslapd_idlistscanlimit': {
-                'description': 'The maximum number of entries a given index key may refer before the index is handled as unindexed..',
-                'required': False,
-                'default': '4000',
-                'type': 'int',
-            },
-            'nsslapd_directory': {
-                'description': 'Default database directory.',
-                'required': False,
-                'default': '{prefix}/var/lib/dirsrv/slapd-{instname}/db',
-                'type': 'str',
-            },
-            'nsslapd_import_cachesize': {
-                'description': 'Size of database cache when doing an import.',
-                'required': False,
-                'default': '16777216',
-                'type': 'int',
-            },
-            'nsslapd_search_bypass_filter_test': {
-                'description': """Allowed values are: 'on', 'off' or 'verify'. If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries.""",
-                'required': False,
-                'default': 'on',
-                'type': 'str',
-                'choices': (
-                    'on',
-                    'off',
-                    'verify',
-                ),
-            },
-            'nsslapd_search_use_vlv_index': {
-                'description': 'enables and disables virtual list view (VLV) searches.',
-                'required': False,
-                'default': 'on',
-                'type': 'str',
-                'choices': (
-                    'on',
-                    'off',
-                ),
-            },
-            'nsslapd_exclude_from_export': {
-                'description': 'list of attributes that are not exported.',
-                'required': False,
-                'default': 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn',
-                'type': 'str',
-            },
-            'nsslapd_pagedlookthroughlimit': {
-                'description': 'lookthroughlimit when performing a paged search.',
-                'required': False,
-                'default': '0',
-                'type': 'int',
-            },
-            'nsslapd_pagedidlistscanlimit': {
-                'description': 'idllistscanlimit when performing a paged search.',
-                'required': False,
-                'default': '0',
-                'type': 'int',
-            },
-            'nsslapd_rangelookthroughlimit': {
-                'description': 'Sets a separate range look-through limit that applies to all users, including Directory Manager.',
-                'required': False,
-                'default': '5000',
-                'type': 'int',
-            },
-            'nsslapd_backend_opt_level': {
-                'description': 'This parameter can trigger experimental code to improve write performance.',
-                'required': False,
-                'default': '1',
-                'type': 'int',
-            },
-            'state': {
-                'description': 'Indicate whether the instance is added(present), modified(updated), or removed(absent).',
-                'required': False,
-                'type': 'str',
-                'choices': (
-                    'present',
-                    'updated',
-                    'absent',
-                ),
-            },
             'backends': {
                 'description': 'List of backends options.',
                 'required': False,
@@ -351,53 +321,19 @@ CONTENT_OPTIONS = {
                         'required': True,
                     },
                     'state': {
-                        'description': """'state' option determines how the other option are handled:
-                     If 'present' then specified options are added.
-                     If 'absent' then specified options are removed.
-                     If 'overwritten' then specified options are added and non specified options are removed.""",
-                        'type': 'str',
+                        'description': 'Indicate whether the backend is added(present), modified(updated), or removed(absent).',
                         'required': False,
                         'default': 'present',
+                        'type': 'str',
                         'choices': (
                             'present',
+                            'updated',
                             'absent',
-                            'overwritten',
                         ),
                     },
-                    'read_only': {
+                    'suffix': {
                         'description': 'Desc.',
-                        'required': False,
-                        'default': False,
-                        'type': 'str',
-                    },
-                    'require_index': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'entry_cache_number': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'entry_cache_size': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'dn_cache_size': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'directory': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'db_deadlock': {
-                        'description': 'Desc.',
-                        'required': False,
+                        'required': True,
                         'type': 'str',
                     },
                     'chain_bind_dn': {
@@ -415,25 +351,46 @@ CONTENT_OPTIONS = {
                         'required': False,
                         'type': 'str',
                     },
-                    'suffix': {
+                    'db_deadlock': {
                         'description': 'Desc.',
-                        'required': True,
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'directory': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'dn_cache_size': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'entry_cache_number': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'entry_cache_size': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'readonly': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'default': False,
+                        'type': 'str',
+                    },
+                    'require_index': {
+                        'description': 'Desc.',
+                        'required': False,
                         'type': 'str',
                     },
                     'sample_entries': {
                         'description': 'Desc.',
                         'required': False,
                         'type': 'str',
-                    },
-                    'state': {
-                        'description': 'Indicate whether the backend is added(present), modified(updated), or removed(absent).',
-                        'required': False,
-                        'type': 'str',
-                        'choices': (
-                            'present',
-                            'updated',
-                            'absent',
-                        ),
                     },
                     'indexes': {
                         'description': 'List of indexes options.',
@@ -447,22 +404,19 @@ CONTENT_OPTIONS = {
                                 'required': True,
                             },
                             'state': {
-                                'description': """'state' option determines how the other option are handled:
-                     If 'present' then specified options are added.
-                     If 'absent' then specified options are removed.
-                     If 'overwritten' then specified options are added and non specified options are removed.""",
-                                'type': 'str',
+                                'description': 'Indicate whether the index is added(present), modified(updated), or removed(absent).',
                                 'required': False,
                                 'default': 'present',
+                                'type': 'str',
                                 'choices': (
                                     'present',
+                                    'updated',
                                     'absent',
-                                    'overwritten',
                                 ),
                             },
                             'indextype': {
                                 'description': 'Determine the index types (pres,eq,sub,matchingRuleOid).',
-                                'required': False,
+                                'required': True,
                                 'type': 'str',
                             },
                             'systemindex': {
@@ -470,16 +424,6 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'default': 'off',
                                 'type': 'str',
-                            },
-                            'state': {
-                                'description': 'Indicate whether the index is added(present), modified(updated), or removed(absent).',
-                                'required': False,
-                                'type': 'str',
-                                'choices': (
-                                    'present',
-                                    'updated',
-                                    'absent',
-                                ),
                             },
                         },
                     },

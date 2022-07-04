@@ -305,11 +305,11 @@ class AnsibleTest:
 
     def listInstances(self):
         """return the list of ds389 instances (extracted from runModule result)."""
-        return [ instance['name'] for instance in self.result['my_useful_info']['instances'] ]
+        return [ instance['name'] for instance in self.result['my_useful_info']['dsserver_instances'] ]
 
     def getInstanceAttr(self, instname, attr):
         """Return an instance attribute (extracted from runModule result)."""
-        return self.lookup(self.result['my_useful_info']['instances'], instname)[attr]
+        return self.lookup(self.result['my_useful_info']['dsserver_instances'], instname)[attr]
 
     def listBackends(self, instname):
         """return the list of backends of a ds389 instances (extracted from runModule result)."""

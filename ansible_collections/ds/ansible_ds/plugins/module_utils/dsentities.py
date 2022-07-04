@@ -130,12 +130,17 @@ def _is_none_ignored(inst, action):
 
 # class handling ansible-ds parameters for each YAML Object
 class Option:
-    def __init__(self, name, desc):
+    KEYWORDS = ( 'choice', 'ConfigName', "root_password", 'hidden', 'isIgnored', "readonly", "required", "type" )
+
+    def __init__(self, name, desc, **kwargs):
         self.name = name
         self.desc = desc
         self.prio = 10
-        self.extension = {}
+        self.extension = { **kwargs }
         self.dsename = None
+        for key in kwargs.keys():
+            #print(f"key={key}")
+            assert key in Option.KEYWORDS
 
     def __repr__(self):
         repr = f"Option({self.name}"
@@ -161,9 +166,9 @@ class Option:
 
 # class handling the Option associated with ds389 parameters that are in dse.ldif
 class DSEOption(Option):
-    def __init__(self, dsename, dsedn, vdef, desc):
+    def __init__(self, dsename, dsedn, vdef, desc, **kwargs):
         name = dsename.replace("-", "_").lower()
-        Option.__init__(self, name, desc)
+        Option.__init__(self, name, desc, **kwargs)
         self.dsename = dsename
         self.dsedn = dsedn
         self.vdef = vdef
@@ -201,16 +206,17 @@ class DSEOption(Option):
 
 # class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
-    def __init__(self, name, dsename, dsedn, vdef, desc):
-        DSEOption.__init__(self, name, dsedn, vdef, desc)
+    def __init__(self, name, dsename, dsedn, vdef, desc, **kwargs):
+        DSEOption.__init__(self, name, dsedn, vdef, desc, **kwargs)
         self.dsename = dsename
 
 # class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
-    def __init__(self, name, prio, desc):
-        Option.__init__(self, name, desc)
+    def __init__(self, name, prio, desc, vdef=None, **kwargs):
+        Option.__init__(self, name, desc, **kwargs)
         self.prio = prio
         self.desc = desc
+        self.vdef = vdef
 
     def _get_action(self, target, facts, vfrom, vto):
         log.debug(f'SpecialOption._get_action(name={self.name} target={target} vfrom={vfrom} vto={vto}')
@@ -553,9 +559,9 @@ class MyYAMLObject(yaml.YAMLObject):
 class YAMLIndex(MyYAMLObject):
     IDXDN = 'cn={attr},cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config'
     OPTIONS = (
-        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)" ),
+        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)", required=True ),
         ConfigOption('systemindex', 'nsSystemIndex', IDXDN, "off", "Tells if the index is a system index" ),
-        SpecialOption('state', 2, "Indicate whether the index is added(present), modified(updated), or removed(absent)" ).ext("choice", ("present", "updated", "absent")),
+        SpecialOption('state', 2, "Indicate whether the index is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
     def __init__(self, name, parent=None):
@@ -622,7 +628,7 @@ class YAMLBackend(MyYAMLObject):
     CHILDREN = { 'indexes': YAMLIndex }
     BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
     OPTIONS = (
-        DSEOption('read-only', BEDN, "False", "Desc" ),
+        DSEOption('readonly', BEDN, "False", "Desc" ),
         ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc" ).ext('isIgnored', _is_none_ignored),
         DSEOption('entry-cache-number', BEDN, None, "Desc" ),
         DSEOption('entry-cache-size', BEDN, None, "Desc" ),
@@ -632,9 +638,9 @@ class YAMLBackend(MyYAMLObject):
         DSEOption('chain-bind-dn', BEDN, None, "Desc" ),
         DSEOption('chain-bind-pw', BEDN, None, "Desc" ),
         DSEOption('chain-urls', BEDN, None, "Desc" ),
-        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "Desc" ).ext("required", "true").ext("read-only","true"),
+        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "Desc", required=True, readonly=True),
         ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Desc" ),
-        SpecialOption('state', 2, "Indicate whether the backend is added(present), modified(updated), or removed(absent)" ).ext("choice", ("present", "updated", "absent")),
+        SpecialOption('state', 2, "Indicate whether the backend is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
 
@@ -743,7 +749,6 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('local_state_dir', None, None, None, f"Sets the location of Directory Server variable data{DEVWARN}" ),
         ConfigOption('lock_dir', 'nsslapd-lockdir', 'cn=config', None, "Directory containing the lock files" ),
         ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections").ext("type","int"),
-        ConfigOption('prefix', None, None, None, "Sets the file system prefix for all other directories. Should be the same as the $PREFIX environment variable when using dsconf/dsctl/dscreate" ),
         ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None, "Sets the Distinquished Name (DN) of the administrator account for this instance. " +
             "It is recommended that you do not change this value from the default 'cn=Directory Manager'" ),
         ConfigOption('rootpw', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
@@ -762,7 +767,7 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('selinux', None, None, None, "Enables SELinux detection and integration during the installation of this instance. " +
             'If set to "True", dscreate auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment ' +
             'or if using a non root installation' ).ext("type","bool"),
-        SpecialOption('started', 99, "Indicate whether the instance is (or should be) started" ).ext("type","bool"),
+        SpecialOption('started', 99, "Indicate whether the instance is (or should be) started", vdef=True, type="bool"),
         ConfigOption('strict_host_checking', None, None, None, 'Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. ' +
             'When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false"' ).ext("type","bool"),
         ConfigOption('sysconf_dir', None, None, None, "sysconf directoryc" ),
@@ -784,7 +789,7 @@ class YAMLInstance(MyYAMLObject):
         DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search").ext("type","int"),
         DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager").ext("type","int"),
         DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance").ext("type","int"),
-        SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)" ).ext("choice", ("present", "updated", "absent")),
+        SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
     DSE_PATH='{prefix}/etc/dirsrv/slapd-{instname}/dse.ldif'
@@ -1162,7 +1167,7 @@ class YAMLInstance(MyYAMLObject):
 class YAMLRoot(MyYAMLObject):
     OPTIONS = (
         SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
-        SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed" ).ext("choice", ("present", "updated", "absent")),
+        SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed", vdef="present", choice= ("present", "updated", "absent")),
 
     )
     CHILDREN = { 'instances': YAMLInstance }

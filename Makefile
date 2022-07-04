@@ -44,7 +44,7 @@ lint:
 	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
 	#cd ansible_collections/ds/ansible_ds/tests; py.test --pylint
 
-gensrc: $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py $(SRCBASE)/plugins/module_utils/dsentities_options.py
+gensrc: $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py $(SRCBASE)/plugins/module_utils/dsentities_options.py $(SRCBASE)/playbooks/roles/dsserver/README.md
 
 $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
 	python ./utils/gendoc.py doc > $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py.tmp
@@ -53,6 +53,9 @@ $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py: utils/gendoc.py $(SRCBASE)/plu
 $(SRCBASE)/plugins/module_utils/dsentities_options.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
 	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp
 	mv -f $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp $(SRCBASE)/plugins/module_utils/dsentities_options.py
+
+$(SRCBASE)/playbooks/roles/dsserver/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/dsserver/README.tmpl $(SRCBASE)/playbooks/*.yml
+	python ./utils/gendoc.py readme
 
 # Create an ini file that could be customized to run the unit_test
 INIFILE=$(HOME)/.389ds-ansible.ini

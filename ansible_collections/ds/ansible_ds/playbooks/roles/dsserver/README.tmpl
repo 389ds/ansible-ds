@@ -1,0 +1,105 @@
+dsserver role
+==============
+
+Description
+-----------
+
+This role allows to create or remove directory server instances and to update their configuration.
+
+**Note**: The ansible playbooks and role require a configured ansible environment where the ansible nodes are reachable and are properly set up to have an IP address and a working package manager.
+
+
+Features
+--------
+* Instance creation
+* Instance removal
+* Updating instance configuration
+
+Supported 389 DS Versions
+--------------------------
+
+389 DS versions 2.1 and up are supported by the dsserver role.
+
+
+Supported Distributions
+-----------------------
+
+* RHEL/CentOS 9+
+* Fedora 36+
+
+
+Requirements
+------------
+
+**Controller**
+* Ansible version: 2.9+
+
+**Node**
+* Supported 389 DS version (see above)
+* Supported distribution (needed for package installation only, see above)
+
+
+Usage
+=====
+
+Example inventory file with fixed domain and realm, setting up of the DNS server and using forwarders from /etc/resolv.conf:
+
+```ini
+[dsserver]
+dsserver.example.com
+```
+
+TODO: For now, this rol uses `localhost` as an instance name.
+
+
+Example playbook to create an instance of the 389 DS server locally:
+
+```yaml
+@@@INSERT dscreate.yml
+```
+
+Example playbook to delete an instance of the 389 DS server locally:
+```yaml
+@@@INSERT dsremove.yml
+```
+
+Example playbook to delete all instances of the 389 DS server locally:
+```yaml
+@@@INSERT dsremoveall.yml
+```
+
+Playbooks
+=========
+
+The example playbooks are part of the repository in the playbooks folder.
+
+```
+dscreate.yml
+dsremove.yml
+dsremoveall.yml
+```
+
+
+Variables
+=========
+
+Base Variables
+--------------
+
+Variable | Description | Required
+-------- | ----------- | --------
+state | `present` or 'overwrite' to update instances configuration, `absent` to remove all instance (default is 'present') | no
+
+Special Variables
+-----------------
+
+Variable | Description | Required
+-------- | ----------- | --------
+dsserver_instances | a list of dict containing the instance configuration (see ds_server module documentation to get the full duescription) (default is empty list) | no
+dsserver_prefix | the directory server installation prefix (default is '') | no
+
+Authors
+=======
+
+Pierre Rogier
+Big parts of README.md logic is taken from https://github.com/freeipa/ansible-freeipa/tree/master/roles/ipabackup

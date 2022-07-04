@@ -15,6 +15,7 @@
 
 import os
 import re
+import glob
 import sys
 from pathlib import Path
 from inspect import cleandoc
@@ -105,31 +106,34 @@ class Doc:
     def prt_meta(self, entity, tab):
         pass
 
-    def prt_state(self, tab):
-        # Print the 'state' option
-        t1 = tab + self.tab
-        t2 = t1 + self.tab
+    def required(self, option):
+        return Doc.getext(option, "required", False) is True
 
-        self.prt("state", self.sd, tab)
-        self.prt("description", Doc.STATE_DESC, t1)
-        self.prt("type", "str", t1)
-        self.prt("required", "false", t1)
-        self.prt("default", "present", t1)
-        self.prt("choices", self.sl, t1)
-        self.prt_choices(Doc.STATE_CHOICES, t2)
-        self.prt_item(self.el, t1)
-        self.prt_item(self.ed, tab)
+    def sortweight(self, option):
+        if option.name in ('name', 'state'):
+            res = 'A'
+        else:
+            res = 'B'
+        if self.required(option):
+            res += 'C'
+        else:
+            res += 'D'
+        res += option.name
+        return res
+
+    def sortOptions(self, keys):
+        s = sorted( [ (self.sortweight(key), key) for key in keys])
+        return [ k[1] for k in s ]
 
     def walk_entity(self, oclass, tab):
         entity = oclass(name='foo')
         t1 = tab + self.tab
         t2 = t1 + self.tab
         t3 = t2 + self.tab
-        self.prt_state(tab)
-        for option in entity.OPTIONS:
+        for option in self.sortOptions(entity.OPTIONS):
             self.prt(option.name, self.sd, tab)
             self.prt("description", f"{option.desc}.", t1)
-            self.prt("required", Doc.getext(option, "required", "false"), t1)
+            self.prt("required", self.required(option), t1)
             vdef = getattr(option, "vdef", None)
             if vdef is not None:
                 self.prt("default", vdef, t1)
@@ -143,10 +147,11 @@ class Doc:
                 self.prt("type", Doc.getext(option, "type", "str"), t1)
             self.prt_item(self.ed, tab)
 
-        for key,nclass in entity.CHILDREN.items():
+        for key in sorted(entity.CHILDREN.keys()):
+            nclass = entity.CHILDREN[key]
             self.prt(key, self.sd, tab)
             self.prt("description", f"List of {key} options.", t1)
-            self.prt("required", "false", t1)
+            self.prt("required", "False", t1)
             self.prt("type", "list", t1)
             self.prt("elements", "dict", t1)
             self.prt(self.suboptions, self.sd, t1)
@@ -157,7 +162,7 @@ class Doc:
             self.prt("name", self.sd, t2)
             self.prt("description", f"{desc}'s name.", t3)
             self.prt("type", "str", t3)
-            self.prt("required", "true", t3)
+            self.prt("required", "True", t3)
             self.prt_item(self.ed, t2)
             self.walk_entity(nclass, t2)
             self.prt_item(self.ed, t1)
@@ -201,15 +206,12 @@ CONTENT_OPTIONS = {"""
         self.dd = '"""'
 
     def prt(self, key, item, tab, skip=False):
-        if key == "required":
-            if item == "true":
-                item = "True"
-            else:
-                item = "False"
         delim = {"\n", "'", '"'}
         if item is None:
             if not skip:
                 print(f"{tab}'{key}':")
+        elif isinstance(item, bool):
+            print(f"{tab}'{key}': {item},")
         elif item in ("True", "False"):
             print(f"{tab}'{key}': {item},")
         elif item in ("{", "(", "["):
@@ -231,9 +233,35 @@ CONTENT_OPTIONS = {"""
                 print(f"{t1}{str(i)},")
             print(f"{tab}],")
 
+class Readme:
+    def __init__(self):
+        pass
+
+    def cat(self, filename, fout):
+        with open(filename, 'r') as f:
+            for line in f:
+                fout.write(line)
+
+    def parseLine(self, line, fout):
+        res = re.match('@@@INSERT *([^ ]*)', line)
+        if res:
+            name = res.group(1).strip()
+            self.cat(f'{p}/ansible_collections/ds/ansible_ds/playbooks/{name}', fout)
+        else:
+            fout.write(line)
+            
+    def generate(self):
+        for path in glob.iglob(f"{p}/ansible_collections/ds/ansible_ds/**/*.tmpl", recursive=True):
+            with open(path, 'r') as fin:
+                with open(path.replace('tmpl', 'md'), 'w') as fout:
+                    for line in fin:
+                        self.parseLine(line, fout)
+
 if "doc" in sys.argv:
 	Doc().generate("")
 elif "spec" in sys.argv:
 	Spec().generate("")
+elif "readme" in sys.argv:
+	Readme().generate()
 else:
-    print("Usage: python gendoc.py doc|spec")
+    print("Usage: python gendoc.py doc|spec|readme")
