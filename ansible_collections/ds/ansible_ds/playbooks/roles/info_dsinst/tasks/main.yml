@@ -6,9 +6,9 @@
     register: result
   - name: "Set variables"
     set_fact:
-      dsinstances: "{{ result.my_useful_info.instances }}"
+      dsserver_instances: "{{ result.my_useful_info.dsserver_instances }}"
 
   - name: Debug
     ansible.builtin.debug:
       msg:
-        - Result is {{ dsinstances }}
+        - Result is {{ dsserver_instances }}

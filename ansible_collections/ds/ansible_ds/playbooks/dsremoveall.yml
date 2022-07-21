@@ -1,0 +1,10 @@
+---
+- name: Playbook to remove all DS instances
+  hosts: localhost
+
+  collections:
+    - ds.ansible_ds
+
+  roles:
+    - role: dsserver
+      state: absent

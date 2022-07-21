@@ -58,6 +58,8 @@ CLASSES = (
     'nsencryptionmodule',
     'nsindex',
     'nsmappingtree',
+    'nsds5replica',
+    'nsds5replicationagreement',
     'nssaslmapping',
     'nsschemapolicy',
     'nsslapdconfig',
@@ -105,6 +107,18 @@ def setLogger(name, verbose=0):
 def getLogger():
     global log
     return log
+
+
+def dictlist2dict(dictlist):
+    if isinstance(dictlist, dict):
+        return dictlist
+    if dictlist is None:
+        return {}
+    r = {}
+    for d in dictlist:
+        r[d['name']] = { **d }
+        r[d['name']].pop('name')
+    return r
 
 
 def _ldap_op_s(inst, f, fname, *args, **kwargs):
@@ -188,6 +202,9 @@ class NormalizedDict(dict, yaml.YAMLObject):
             nkey = ensure_str(key).lower()
             if re.match("^[a-z][a-z0-9-]* *= .*", nkey):
                 nkey = normalizeDN(key)
+            for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
+                nkey = nkey.replace(k, v);
+            #log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
         return nkey
 
     def get(self, key):
@@ -341,13 +358,13 @@ class LdapOp(yaml.YAMLObject):
                 mods.append( (attr, ensure_list_bytes(vals)) )
 
     def _ldap_add(self, dirSrv):
-        add_s(dirSrv, self.dn, self.to_ldap_mods())
+        add_s(dirSrv, self.dn, self.to_ldap_mods(), escapehatch='i am sure')
 
     def _ldap_del(self, dirSrv):
-        delete_s(dirSrv, self.dn)
+        delete_s(dirSrv, self.dn, escapehatch='i am sure')
 
     def _ldap_mod(self, dirSrv):
-        modify_s(dirSrv, self.dn, self.to_ldap_mods())
+        modify_s(dirSrv, self.dn, self.to_ldap_mods(), escapehatch='i am sure')
 
     def apply(self, dirSrv):
         opinfo = self.___opinfo[self.op]
@@ -414,9 +431,17 @@ class LdapOp(yaml.YAMLObject):
 class Entry:
     def __init__(self, dn, attributes):
         self._op = LdapOp(LdapOp.ADD_ENTRY, dn)
-        self._ndn = normalizeDN(dn)
+        self._ndn = NormalizedDict.normalize(dn)
         for attr, vals in attributes.items():
             self._op.add_values(attr, vals)
+
+    def fromDS(dirSrv, dn):
+        try:
+            entry = dirSrv.search_ext_s(dn, ldap.SCOPE_BASE, 'objectclass=*', escapehatch='i am sure')[0]
+            entry = Entry(entry.dn, entry.data)
+            return entry
+        except ldap.NO_SUCH_OBJECT:
+            return None
 
     def getDN(self):
         return self._op.dn

@@ -12,22 +12,23 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
+ANSIBLE_METADATA = {
+    "metadata_version": "1.0",
+    "supported_by": "community",
+    "status": ["preview"],
+}
+
 DOCUMENTATION = r'''
 ---
-module: ds_info
+module: ds_server
 
-short_description: This module provides method to update the ldap server instances available on the local host.
-
-version_added: "1.0.0"
-
+short_description: This module provides method to create or remove ldap server instances and update their configuration.
 description:
     - This module allow to update the state of the ds389 (or RHDS) instances on the local host.
+extends_documentation_fragment:
+  - dsserver_doc
 
 options:
-    prefix:
-        description: This is the prefix install path in which instances will be looked at.
-        required: false
-        type: path
 
 author:
     - Pierre Rogier (@progier389)
@@ -40,10 +41,41 @@ requirements:
 '''
 
 EXAMPLES = r'''
-# Pass in a message
-- name: Test with a message
-  my_namespace.my_collection.my_test_info:
-    name: hello world
+# Install an instance:
+- name: Playbook to create a DS instance
+  hosts: localhost
+
+  vars:
+    dsserver_instances:
+        -
+            name: i1
+            rootpw: !vault |
+                      $ANSIBLE_VAULT;1.1;AES256
+                      30353330663535343236626331663332336636383562316662326463363161626163653731353564
+                      6130636534336637353939643930383962306431323262390a663839666262313338613334303937
+                      66656631313662343132346638643137396337613962636565393931636132663435306433643130
+                      3661636162373437330a633066313635343063356635623137626635623764626139373061383634
+                      3439
+
+            port: 389
+            secure_port: 636
+            backends:
+                -
+                    name: "userroot"
+                    suffix: "dc=example,dc=com"
+                -
+                    name: "second"
+                    suffix: "dc=another example,dc=com"
+                -
+                    name: "peoplesubsuffix"
+                    suffix: "o=people,dc=example,dc=com"
+
+  collections:
+    - ds.ansible_ds
+
+  roles:
+    - role: dsserver
+      state: present
 '''
 
 RETURN = r'''
@@ -52,20 +84,72 @@ original_message:
     description: The original name param that was passed in.
     type: str
     returned: always
-    sample: 'hello world'
+    sample: {
+        "state": "present",
+        "dsserver_instances": [
+            {
+                "state": "present",
+                "backends": [
+                    {
+                        "state": "present",
+                        "indexes": [ ],
+                        "suffix": "dc=example,dc=com",
+                        "name": "userroot"
+                    }
+                ],
+                "started": "true",
+                "dseMods": null,
+                "rootpw": "secret12",
+                "port": "38901",
+                "secure_port": "63601",
+                "name": "i1"
+            },
+            {
+                "state": "present",
+                "backends": [
+                    {
+                        "state": "present",
+                        "indexes": [ ],
+                        "suffix": "dc=example,dc=com",
+                        "name": "userroot"
+                    }
+                ],
+                "started": "true",
+                "dseMods": null,
+                "rootpw": "secret12",
+                "port": "38902",
+                "secure_port": "63602",
+                "name": "i2"
+            }
+        ],
+        "dsserver_prefix": "/home/progier/sb/ai1/tst/ci-install"
+    }
+
 message:
     description: The output message that the test module generates.
     type: str
     returned: always
     sample: 'goodbye'
+
 my_useful_info:
-    description: The dictionary containing information about your system.
+    description: The dictionary containing messages about changes
     type: dict
     returned: always
     sample: {
-        'foo': 'bar',
-        'answer': 42,
+        msgs": [
+            "Creating instance slapd-i1",
+            "Set nsslapd-port:38901 in cn=config",
+            "Set nsslapd-secureport:63601 in cn=config",
+            "Creating backend userroot on suffix dc=example,dc=com",
+            "Set nsslapd-suffix:dc=example,dc=com in cn=userroot,cn=ldbm database,cn=plugins,cn=config",
+            "Creating instance slapd-i2",
+            "Set nsslapd-port:38902 in cn=config",
+            "Set nsslapd-secureport:63602 in cn=config",
+            "Creating backend userroot on suffix dc=example,dc=com",
+            "Set nsslapd-suffix:dc=example,dc=com in cn=userroot,cn=ldbm database,cn=plugins,cn=config"
+        ]
     }
+
 '''
 
 from ansible.module_utils.basic import AnsibleModule
@@ -84,9 +168,11 @@ if __name__ == "__main__":
     from module_utils.dsentities import YAMLRoot
     from module_utils.dsutil import setLogger, getLogger, log
     from module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from module_utils.dsentities_options import CONTENT_OPTIONS
 else:
     from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import YAMLRoot
     from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities_options import CONTENT_OPTIONS
 
 
 
@@ -94,7 +180,7 @@ def run_module():
     # define available arguments/parameters a user can pass to the module
     module_args = dict(
         path=dict(type='path', required=False),
-        content=dict(type='raw', required=False),
+        content=dict(type='dict', required=False, options=CONTENT_OPTIONS),
     )
 
     # seed the result dict in the object
@@ -141,7 +227,7 @@ def run_module():
     except Exception as e:
         raise e
         module.fail_json(f'Failed to validate the parameters. error is {e}')
-    result['original_message'] = wanted_state.todict()
+    result['original_message'] = wanted_state.tolist()
 
     log.debug(f"wanted_state={wanted_state}")
     # Determine current state

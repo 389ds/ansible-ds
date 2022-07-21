@@ -17,11 +17,13 @@ readme: README.md
 # @nicks:irc/im.site#channel'
 authors:
 - your name <example@domain.com>
+- Pierre Rogier <progier@redhat.com>
+- Simon Pichugin <spichugi@redhat.com>
 
 
 ### OPTIONAL but strongly recommended
 # A short summary description of the collection
-description: your collection description
+description: A set to install and deploy ds389 or RedHat Directory Server
 
 # Either a single license or a list of licenses for content inside of a collection. Ansible Galaxy currently only
 # accepts L(SPDX,https://spdx.org/licenses/) licenses. This key is mutually exclusive with 'license_file'
@@ -58,5 +60,7 @@ issues: http://example.com/issue/tracker
 # artifact. A pattern is matched from the relative path of the file or directory of the collection directory. This
 # uses 'fnmatch' to match the files or directories. Some directories and files like 'galaxy.yml', '*.pyc', '*.retry',
 # and '.git' are always filtered
-build_ignore: []
+build_ignore: 
+  - 'tests*'
+  - '*.tmpl'
 
