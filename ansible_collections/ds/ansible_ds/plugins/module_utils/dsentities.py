@@ -55,6 +55,8 @@ from lib389.dseldif import DSEldif
 from lib389.backend import Backend
 from lib389.instance.setup import SetupDs
 from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue, get_instance_list
+from lib389._constants import ReplicaRole
+from lib389.replica import Replicas, Replica, Changelog
 
 from configparser import ConfigParser
 from .dsutil import NormalizedDict, DSE, DiffResult, getLogger, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp
@@ -130,17 +132,23 @@ def _is_none_ignored(inst, action):
 
 # class handling ansible-ds parameters for each YAML Object
 class Option:
-    KEYWORDS = ( 'choice', 'ConfigName', "root_password", 'hidden', 'isIgnored', "readonly", "required", "type" )
-
-    def __init__(self, name, desc, **kwargs):
-        self.name = name
-        self.desc = desc
-        self.prio = 10
-        self.extension = { **kwargs }
-        self.dsename = None
-        for key in kwargs.keys():
-            #print(f"key={key}")
-            assert key in Option.KEYWORDS
+    def __init__(self, name, desc, prio=10, actionCbName=None, dseName=None, dseDN=None, configName=None,
+            configTag=None, choice=None, hidden=False, isIgnoredCb=None, readonly=False, required=False, vdef=None, type="str"):
+        self.name = name                 # Ansible variable name
+        self.desc = desc                 # Human readable description
+        self.prio = prio                 # Priority order ( low priority parameters are handled first )
+        self.actioncbname = actionCbName # Name of action handler cb in entity object
+        self.dsename = dseName           # Attribute name in dse.ldif file
+        self.dsedn = dseDN               # Entry DN in dse.ldif file (may refer to the entity attributes have lower priority)
+        self.configname = configName     # Attribute name in dscreate config file (cf dscreate create-template --advanced)
+        self.configtag = configTag       # Attribute section in dscreate config file (cf dscreate create-template --advanced)
+        self.choice = choice             # Allowed values if attribute is a choice
+        self.hidden = hidden             # Tell whether attribute value is hidden (i.e not logged)
+        self.isignoredcb = isIgnoredCb   # Callback to determine if attribute should be taken in account
+        self.readonly = readonly         # True means that attribute change should be done when instance is stopped.
+        self.required = required         # True means that attribute is mandatory.
+        self.vdef = vdef                 # Default value.
+        self.type = type                 # Attribute python type
 
     def __repr__(self):
         repr = f"Option({self.name}"
@@ -153,34 +161,18 @@ class Option:
         return repr
 
     def _get_action(self, target, facts, vfrom, vto):
+        if self.actioncbname:
+            func = getattr(target, self.actioncbname)
+            return ( OptionAction(self, target, facts, vfrom, vto, func), )
+        if self.dsedn:
+            return ( OptionAction(self, target, facts, vfrom, vto, Option._action), )
         return []
-
-    def ext(self, key, value):
-        self.extension[key] = value
-        return self
-
-    def getext(self, key):
-        if key in self.extension:
-            return self.extension[key]
-        return None
-
-# class handling the Option associated with ds389 parameters that are in dse.ldif
-class DSEOption(Option):
-    def __init__(self, dsename, dsedn, vdef, desc, **kwargs):
-        name = dsename.replace("-", "_").lower()
-        Option.__init__(self, name, desc, **kwargs)
-        self.dsename = dsename
-        self.dsedn = dsedn
-        self.vdef = vdef
-
-    def _get_action(self, target, facts, vfrom, vto):
-        return ( OptionAction(self, target, facts, vfrom, vto, DSEOption._action), )
 
     def _action(self=None, action=None, action2perform=None):
         option = action.option
         dsedn = action.target.getPath(option.dsedn)
         if action2perform == OptionAction.DESC:
-            if option.getext('hidden'):
+            if option.hidden:
                 return f"Set {option.dsename} in {dsedn}"
             else:
                 return f"Set {option.dsename}:{action.vto} in {dsedn}"
@@ -190,12 +182,13 @@ class DSEOption(Option):
                 return vdef
             return action.target.getDefaultDSE().getSingleValue(dsedn, option.dsename)
         elif action2perform == OptionAction.FACT:
+            #log.info(f"_action: OptionAction.FACT  dsedn={dsedn} {option.dsename}")
             return action.target.getDSE().getSingleValue(dsedn, option.dsename)
         elif action2perform == OptionAction.CONFIG:
             val = action.getValue()
             log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
             if val is not None:
-                name = option.getext('ConfigName')
+                name = option.configname
                 if name is None:
                     name = option.name
                 action.target._infConfig['slapd'][name] = str(val)
@@ -204,25 +197,53 @@ class DSEOption(Option):
             if dsedn:
                 action.target.addModifier(dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
 
+
+# class handling the Option associated with ds389 parameters that are in dse.ldif
+class DSEOption(Option):
+    def __init__(self, dsename, dsedn, vdef, desc, **kwargs):
+        name = dsename.replace("-", "_").lower()
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
+
 # class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
     def __init__(self, name, dsename, dsedn, vdef, desc, **kwargs):
-        DSEOption.__init__(self, name, dsedn, vdef, desc, **kwargs)
-        self.dsename = dsename
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
+        if not self.configname:
+            self.configname = name
+        if not self.configtag:
+            self.configtag = "slapd"
 
 # class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
     def __init__(self, name, prio, desc, vdef=None, **kwargs):
-        Option.__init__(self, name, desc, **kwargs)
-        self.prio = prio
-        self.desc = desc
-        self.vdef = vdef
+        Option.__init__(self, name, desc, prio=prio, actionCbName=f'_{name}Action', vdef=vdef, **kwargs)
 
-    def _get_action(self, target, facts, vfrom, vto):
-        log.debug(f'SpecialOption._get_action(name={self.name} target={target} vfrom={vfrom} vto={vto}')
-        funcName = f"_{self.name}Action"
-        func = getattr(target, funcName)
-        return ( OptionAction(self, target, facts, vfrom, vto, func), )
+# class handling replica parameters
+class ReplicaOption(Option):
+    DSEDN = 'cn=replica,cn={suffix},cn=mapping tree,cn=config'
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsds5{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=ReplicaOption.DSEDN, **kwargs)
+
+# class handling replica parameters
+class ChangelogOption(Option):
+    DSEDN = 'cn=changelog,cn={bename},cn=ldbm database,cn=plugins,cn=config'
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsslapd{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=ChangelogOption.DSEDN, **kwargs)
+
+# class handling replication agreement parameters
+class AgmtOption(Option):
+    AGMTDN = "{agmtDN}"
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsds5{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=AgmtOption.AGMTDN, **kwargs)
 
 # utility class used to perform action on an Option
 class OptionAction:
@@ -530,7 +551,7 @@ class MyYAMLObject(yaml.YAMLObject):
                 return
             if action.vfrom == action.vto:
                 continue
-            func = action.option.getext('isIgnored')
+            func = action.option.isignoredcb
             if func and func(self, action):
                 continue
             msg = action.perform(OptionAction.DESC)
@@ -623,13 +644,104 @@ class YAMLIndex(MyYAMLObject):
                 idx = Index(inst.getDirSrv(), dn=dn)
                 idx.delete()
 
+class YAMLAgmt(MyYAMLObject):
+    OPTIONS = (
+        SpecialOption('state', 2, "Indicate whether the replication agreement is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
+
+        # AgmtOption('BeginReplicaRefresh', "desc"),   Not an attribut but a action/task
+        AgmtOption('ReplicaBindDN', "The DN used to connect to the target instance"),
+        #AgmtOption('ReplicaBindDNGroup', "desc"),
+        #AgmtOption('ReplicaBindDNGroupCheckInterval', "desc"),
+        AgmtOption('ReplicaBindMethod', "The bind Method",  choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+        AgmtOption('ReplicaBootstrapBindDN', "The fallback bind dn used after getting authentication error"),
+        AgmtOption('ReplicaBootstrapBindMethod', "The fallback bind method", choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+
+        AgmtOption('ReplicaBootstrapCredentials', "The credential associated with the fallback bind"),
+        AgmtOption('ReplicaBootstrapTransportInfo', "The encryption method used on the connection after an authentication error.", choice= ("LDAP", "TLS", "SSL" )),
+        AgmtOption('ReplicaBusyWaitTime', "The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access", type="int"),
+        AgmtOption('ReplicaCredentials', "The crendential associated with the bind"),
+        AgmtOption('ReplicaEnabled', "A flags telling wheter the replication agreement is enabled or not.", choice= ("on", "off")),
+        AgmtOption('ReplicaFlowControlPause', "the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached.", type="int"),
+        AgmtOption('ReplicaFlowControlWindow', "The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsds5ReplicaFlowControlPause parameter", type="int"),
+        AgmtOption('ReplicaHost', "The target instance hostname"),
+        AgmtOption('ReplicaIgnoreMissingChange', "Tells how the replication behaves when a csn is missing.", choice= ("never", "once", "always", "on", "off") ),
+        AgmtOption('ReplicaPort', "Target instance port", type="int"),
+        #AgmtOption('ReplicaRoot', "Replicated suffix DN"),   # Same as the parent backend suffix
+        AgmtOption('ReplicaSessionPauseTime', "The amount of time in seconds a supplier should wait between update sessions", type="int"),
+        AgmtOption('ReplicaStripAttrs', "Fractionnal replication attributes that does get replicated if the operation modifier list contains only these agreement", type = "list"),
+        AgmtOption('ReplicatedAttributeList', "List of replication attribute ithat are not replicated in fractionnal replication", type = "list"),
+        AgmtOption('ReplicatedAttributeListTotal', "List of attributes that are not replicated during a total update", type="list"),
+        AgmtOption('ReplicaTimeout', "The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing", type="int"),
+        AgmtOption('ReplicaTransportInfo', "The encryption method used on the connection", choice= ("LDAP", "TLS", "SSL") ),
+
+        AgmtOption('ReplicaUpdateSchedule', "The replication schedule.", type="list"),
+        AgmtOption('ReplicaWaitForAsyncResults', "The time in milliseconds for which a supplier waits if the consumer is not ready before resending data."),
+    )
+
+    def MyPathNames(self):
+        agmtDN= f"cn={self.name},{self._parent.getPath(ReplicaOption.DSEDN)}"
+        return { 'agmtDN' : agmtDN }
+
+    def getFacts(self):
+        actions = self.getAllActions(self)
+        bename = self.getPath("{bename}")
+        for action in actions:
+            val = action.perform(OptionAction.FACT)
+            vdef = action.perform(OptionAction.DEFAULT)
+            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            if val and val != vdef:
+                setattr(self, action.option.name, val)
+
+    def _stateAction(self=None, action=None, action2perform=None):
+        option = action.option
+        bename = self.getPath("{bename}")
+        log.debug(f"YAMLAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
+        if _is_none_ignored(self, action):
+            action.vto = "present"
+        if action2perform == OptionAction.DESC:
+            if action.vto == "present":
+                return f"Creating agreement {action.target.name} on backend {bename}"
+            else:
+                return f"Deleting agreement {action.target.name} on backend {bename}"
+        elif action2perform == OptionAction.DEFAULT:
+            return "present"
+        elif action2perform == OptionAction.FACT:
+            dse = action.target.getDSE()
+            if dse.getEntry(self.getPath(AgmtOption.AGMTDN)):
+                return 'present'
+            else:
+                return 'absent'
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            inst = action.target.getYAMLInstance()
+            baseDN = action.target._parent.getPath(ReplicaOption.DSEDN)
+            if action.vto == "present":
+                # In fact that is the rdn that Backend.create method needs.
+                dn = f'cn={action.target.name}'
+                actions = action.target.getAllActions(action.target)
+                for a in actions:
+                    if getattr(a.option, 'dsedn', None) == AgmtOption.AGMTDN and a.getValue():
+                        mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
+                agmt = Agreement(inst.getDirSrv())
+                log.debug(f"Creating agmt dn:{dn},{baseDN} properties:{mods}")
+                agmt.create(dn, mods, baseDN)
+            else:
+                dn = action.target.getPath(AgmtOption.AGMTDN)
+                agmt = Agreement(inst.getDirSrv(), dn=dn)
+                agmt.delete()
+
 
 class YAMLBackend(MyYAMLObject):
-    CHILDREN = { 'indexes': YAMLIndex }
+    CHILDREN = { 'indexes': YAMLIndex, 'agmts': YAMLAgmt }
     BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
+    # Replication (type, flags, ReplicaRolem, promoteWeight) per roles
+    REPL_ROLES = { None: ( "0", "0", ReplicaRole.STANDALONE, 0 ), "supplier": ( "3", "1", ReplicaRole.SUPPLIER, 3 ), "hub": ( "2", "1", ReplicaRole.HUB, 2 ), "consumer": ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
+
     OPTIONS = (
         DSEOption('readonly', BEDN, "False", "Desc" ),
-        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc" ).ext('isIgnored', _is_none_ignored),
+        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc", isIgnoredCb=_is_none_ignored),
         DSEOption('entry-cache-number', BEDN, None, "Desc" ),
         DSEOption('entry-cache-size', BEDN, None, "Desc" ),
         DSEOption('dn-cache-size', BEDN, None, "Desc" ),
@@ -638,17 +750,44 @@ class YAMLBackend(MyYAMLObject):
         DSEOption('chain-bind-dn', BEDN, None, "Desc" ),
         DSEOption('chain-bind-pw', BEDN, None, "Desc" ),
         DSEOption('chain-urls', BEDN, None, "Desc" ),
-        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "Desc", required=True, readonly=True),
-        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Desc" ),
+        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "DN subtree root of entries managed by this backend.", required=True, readonly=True, prio=5),
+        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Tells whether sample entries are created on this backend when the instance is created", type="bool" ),
         SpecialOption('state', 2, "Indicate whether the backend is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
+        ChangelogOption('ChangelogEncryptionAlgorithm', "Encryption algorithm used to encrypt the changelog."),
+        ChangelogOption('ChangelogMaxAge', "Changelog record lifetime"),
+        ChangelogOption('ChangelogMaxEntries', "Max number of changelog records"),
+        ChangelogOption('ChangelogSymetricKey', "Encryption key (if changelog is encrypted)"),
+        ChangelogOption('ChangelogTrimInterval', "Time (in seconds) between two runs of the changlog trimming. "),
+        ReplicaOption('ReplicaBackoffMax', "Maximum delay before retrying to send updates after a recoverable failure", type="int"),
+        ReplicaOption('ReplicaBackoffMin', "Minimum time before retrying to send updates after a recoverable failure", type="int"),
+        ReplicaOption('ReplicaBindDNGroupCheckInterval', "Interval between detection of the bind dn group changes", type="int"),
+        ReplicaOption('ReplicaBindDNGroup', "DN of the group containing users allowed to replay updates on this replica"),
+        ReplicaOption('ReplicaBindDN', "DN of the user allowed to replay updates on this replica"),
+        ReplicaOption('ReplicaId', "The unique ID for suppliers in a given replication environment (between 1 and 65534).", type="int"),
+        ReplicaOption('ReplicaPreciseTombstonePurging', "???"),
+        ReplicaOption('ReplicaProtocolTimeout', "Timeout used when stopping replication to abort ongoing operations.", type="int"),
+        ReplicaOption('ReplicaPurgeDelay', "The maximum age of deleted entries (tombstone entries) and entry state information."),
+        ReplicaOption('ReplicaReferral', "The user-defined referrals (returned when a write operation is attempted on a hub or a consumer.", type="list"),
+        ReplicaOption('ReplicaReleaseTimeout', "The timeout period (in seconds) after which a master will release a replica.", type="int"),
+        ReplicaOption('ReplicaTombstonePurgeInterval', "The time interval in seconds between purge operation cycles.", type="int"),
+        ReplicaOption('ReplicaTransportInfo', "The type of transport used for transporting data to and from the replica.", choice=("LDAP","SSL","TLS")),
+        ReplicaOption('ReplicaUpdateSchedule', "Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing " +
+                                               "hour, and the numbers 0123456 are the days of the week starting with Sunday.", type="list"),
+        SpecialOption('ReplicaRole', 9, "The replica role.", choice=(None, "supplier", "hub", "consumer")),
+        ReplicaOption('ReplicaWaitForAsyncResults', "Delay in milliseconds before resending an update if consumer does not acknowledge it.", type="int"),
     )
+
+
 
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent=parent)
 
     def MyPathNames(self):
-        return { 'bename' : self.name }
+        s = getattr(self, 'suffix', None)
+        if s:
+            s = escapeDNFiltValue(normalizeDN(s))
+        return { 'bename' : self.name, 'suffix' : s }
 
     def getFacts(self):
         dse = self.getDSE()
@@ -669,8 +808,94 @@ class YAMLBackend(MyYAMLObject):
                 if self.is_default_index(m.group(1), entry) is False:
                     index = YAMLIndex(m.group(1), parent=self)
                     index._beentrydn = dn
-                    self.indexes[index].name = index
+                    self.indexes[index.name] = index
                     index.getFacts()
+        if 'nsds5replicationagreement' in dse.class2dn:
+            replicaDN=NormalizedDict.normalize(self.getPath(ReplicaOption.DSEDN))
+            for dn in dse.class2dn['nsds5replicationagreement']:
+                entry = dse.dn2entry[dn]
+                if entry.getNDN().endswith(replicaDN):
+                    m = re.match(f'cn=([^,]*),cn=replica,cn=.*,cn=mapping tree,cn=config', dn)
+                    assert m
+                    agmt = YAMLAgmt(m.group(1), parent=self)
+                    agmt._beentrydn = dn
+                    self.agmts[agmt.name] = agmt
+                    agmt.getFacts()
+
+
+    def _getReplicaRole(self):
+        dse = self.getDSE()
+        if not dse:
+            return None
+        rentry = dse.getEntry(self.getPath(ReplicaOption.DSEDN))
+        if not rentry:
+            return None
+        flags = rentry.getSingleValue('nsDS5Flags')
+        type = rentry.getSingleValue('nsDS5ReplicaType')
+        for key, val in YAMLBackend.REPL_ROLES.items():
+            if (type, flags) == val[0:2]:
+                return key
+        return None
+
+    def _getReplica(self):
+        inst = self._parent.getDirSrv()
+        replicas = Replicas(inst)
+        replica = replicas.get(self.suffix)
+        if replica:
+            return replica
+        return Replica(inst, self.suffix)
+
+    def _getChangelog(self):
+        inst = self._parent.getDirSrv()
+        return Changelogi(inst, suffix=self.suffix)
+
+    def _ReplicaRoleAction(self=None, action=None, action2perform=None):
+        option = action.option
+        if _is_none_ignored(self, action):
+            action.vto = None
+        if action2perform == OptionAction.DESC:
+            if action.vto:
+                return f"Configure replication as {action.vto} for backend {action.target.name} on suffix {action.target.suffix}"
+            else:
+                return f"Unconfigure replication for backend {action.target.name} on suffix {action.target.suffix}"
+        elif action2perform == OptionAction.DEFAULT:
+            return None
+        elif action2perform == OptionAction.FACT:
+            return self._getReplicaRole()
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            tf_from = YAMLBackend.REPL_ROLES[action.vfrom]
+            tf_to = YAMLBackend.REPL_ROLES[action.vto]
+            from_weight = tf_from[3]
+            to_weight = tf_to[3]
+            if from_weight > to_weight:
+                # Should demote
+                if to_weight == 0:
+                    demote_role = ReplicaRole.CONSUMER
+                else:
+                    demote_role = tf_to[2]
+                replica = self._getReplica()
+                # Do not demote Consumer
+                if tf_from[2] != demote_role:
+                    replica.demote(demote_role)
+                if to_weight == 0:
+                    replica.delete()
+                if (tf_from[1] != tf_to[1]):
+                    # Should also delete the changelog entry
+                    changelog = self._getChangelog()
+                    changelog.delete()
+            if from_weight < to_weight:
+                # Should create or promote
+                rid = getattr(self, "ReplicaId", None)
+                binddn = getattr(self, "ReplicaBindDN", None)
+                if (tf_from[1] != tf_to[1]):
+                    # Should also create the changelog entry
+                    changelog = self._getChangelog()
+                    changelog.create()
+                if from_weight == 0:
+                    replica.create(suffix=self.suffix, role=tf_to[2], rid=rid)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
@@ -737,7 +962,7 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('data_dir', None, None, None, f"Sets the location of Directory Server shared static data{DEVWARN}" ),
         ConfigOption('db_dir', 'nsslapd-directory', LDBM_CONFIG_DB, None, "Sets the database directory of the instance" ),
         ConfigOption('db_home_dir', 'nsslapd-db-home-directory', 'cn=bdb,cn=config,cn=ldbm database,cn=plugins,cn=config', None, "Sets the memory-mapped database files location of the instance" ),
-        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None, "Select the database implementation library" ).ext("choice", ("bdb", "mdb")),
+        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None, "Select the database implementation library", choice=("bdb", "mdb")),
         ConfigOption('full_machine_name', 'nsslapd-localhost', 'cn=config', None, 'The fully qualified hostname (FQDN) of this system. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to the FQDN of the load balancer and, additionally, set "strict_host_checking" to "false"' ),
         ConfigOption('group', 'nsslapd-group', 'cn=config', None, "Sets the group name the ns-slapd process will use after the service started" ),
         ConfigOption('initconfig_dir', None, None, None, f"Sets the directory of the operating system's rc configuration directory{DEVWARN}" ),
@@ -748,17 +973,17 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('lib_dir', None, None, None, f"Sets the location of Directory Server shared libraries{DEVWARN}" ),
         ConfigOption('local_state_dir', None, None, None, f"Sets the location of Directory Server variable data{DEVWARN}" ),
         ConfigOption('lock_dir', 'nsslapd-lockdir', 'cn=config', None, "Directory containing the lock files" ),
-        ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections").ext("type","int"),
+        ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections", type="int"),
         ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None, "Sets the Distinquished Name (DN) of the administrator account for this instance. " +
             "It is recommended that you do not change this value from the default 'cn=Directory Manager'" ),
         ConfigOption('rootpw', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
             'You can either set this parameter to a plain text password dscreate hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility. ' +
-            'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file'
-        ).ext('isIgnored', _is_password_ignored).ext('hidden',True).ext('ConfigName', "root_password"),
+            'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file',
+            isIgnoredCb=_is_password_ignored, hidden=True, configName="root_password"),
         ConfigOption('run_dir', 'nsslapd-rundir', 'cn=config', None, "Directory containing the pid file" ),
         ConfigOption('sbin_dir', None, None, None, f"Sets the location where the Directory Server administration binaries are stored{DEVWARN}" ),
         ConfigOption('schema_dir', 'nsslapd-schemadir', 'cn=config', None, "Directory containing the schema files" ),
-        ConfigOption('secure_port', 'nsslapd-secureport', 'cn=config', None, "Sets the TCP port the instance uses for TLS-secured LDAP connections (LDAPS)" ).ext("type","int"),
+        ConfigOption('secure_port', 'nsslapd-secureport', 'cn=config', None, "Sets the TCP port the instance uses for TLS-secured LDAP connections (LDAPS)" ,type="int"),
         ConfigOption('self_sign_cert', None, None, None, "Sets whether the setup creates a self-signed certificate and enables TLS encryption during the installation. " +
             "The certificate is not suitable for production, but it enables administrators to use TLS right after the installation. " +
             "You can replace the self-signed certificate with a certificate issued by a Certificate Authority. If set to False, " +
@@ -766,29 +991,29 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('self_sign_cert_valid_months', None, None, None, "Set the number of months the issued self-signed certificate will be valid." ),
         ConfigOption('selinux', None, None, None, "Enables SELinux detection and integration during the installation of this instance. " +
             'If set to "True", dscreate auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment ' +
-            'or if using a non root installation' ).ext("type","bool"),
+            'or if using a non root installation', type="bool"),
         SpecialOption('started', 99, "Indicate whether the instance is (or should be) started", vdef=True, type="bool"),
         ConfigOption('strict_host_checking', None, None, None, 'Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. ' +
-            'When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false"' ).ext("type","bool"),
+            'When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false"', type="bool"),
         ConfigOption('sysconf_dir', None, None, None, "sysconf directoryc" ),
-        ConfigOption('systemd', None, None, None, f'Enables systemd platform features. If set to "True", dscreate auto-detects whether systemd is installed{DEVNRWARN}'  ).ext("type","bool"),
+        ConfigOption('systemd', None, None, None, f'Enables systemd platform features. If set to "True", dscreate auto-detects whether systemd is installed{DEVNRWARN}', type="bool"),
         ConfigOption('tmp_dir', 'nsslapd-tmpdir', 'cn=config', None, "Sets the temporary directory of the instance" ),
         ConfigOption('user', 'nsslapd-localuser', 'cn=config', None, "Sets the user name the ns-slapd process will use after the service started" ),
 
-        DSEOption('nsslapd-lookthroughlimit', LDBM_CONFIG_DB, '5000', "The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED").ext("type","int"),
-        DSEOption('nsslapd-mode', LDBM_CONFIG_DB, '600', "The database permission (mode) in octal").ext("type","int"),
-        DSEOption('nsslapd-idlistscanlimit', LDBM_CONFIG_DB, '4000', "The maximum number of entries a given index key may refer before the index is handled as unindexed.").ext("type","int"),
-        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory").ext('isIgnored', _is_none_ignored),
-        DSEOption('nsslapd-import-cachesize', LDBM_CONFIG_DB, '16777216', "Size of database cache when doing an import").ext("type","int"),
+        DSEOption('nsslapd-lookthroughlimit', LDBM_CONFIG_DB, '5000', "The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED", type="int"),
+        DSEOption('nsslapd-mode', LDBM_CONFIG_DB, '600', "The database permission (mode) in octal", type="int"),
+        DSEOption('nsslapd-idlistscanlimit', LDBM_CONFIG_DB, '4000', "The maximum number of entries a given index key may refer before the index is handled as unindexed.", type="int"),
+        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory", isIgnoredCb=_is_none_ignored),
+        DSEOption('nsslapd-import-cachesize', LDBM_CONFIG_DB, '16777216', "Size of database cache when doing an import", type="int"),
         DSEOption('nsslapd-search-bypass-filter-test', LDBM_CONFIG_DB, 'on', "Allowed values are: 'on', 'off' or 'verify'. " +
             "If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. " +
-            "If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries" ).ext("choice",("on","off","verify")),
-        DSEOption('nsslapd-search-use-vlv-index', LDBM_CONFIG_DB, 'on', "enables and disables virtual list view (VLV) searches").ext("choice",("on","off")),
+            "If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries", choice=("on","off","verify")),
+        DSEOption('nsslapd-search-use-vlv-index', LDBM_CONFIG_DB, 'on', "enables and disables virtual list view (VLV) searches", choice=("on","off")),
         DSEOption('nsslapd-exclude-from-export', LDBM_CONFIG_DB, 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn', "list of attributes that are not exported"),
-        DSEOption('nsslapd-pagedlookthroughlimit', LDBM_CONFIG_DB, '0', "lookthroughlimit when performing a paged search").ext("type","int"),
-        DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search").ext("type","int"),
-        DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager").ext("type","int"),
-        DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance").ext("type","int"),
+        DSEOption('nsslapd-pagedlookthroughlimit', LDBM_CONFIG_DB, '0', "lookthroughlimit when performing a paged search", type="int"),
+        DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search", type="int"),
+        DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager", type="int"),
+        DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance", type="int"),
         SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
@@ -833,17 +1058,16 @@ class YAMLInstance(MyYAMLObject):
                 newResult.cloneDN(result.result, dn)
 
         for option in self.OPTIONS:
-            if not isinstance(option, DSEOption):
-                continue
-            action, val = newResult.getSingleValuedValue(option.dsedn, option.dsename)
-            if not action:
-                continue
-            if (action != DiffResult.DELETEVALUE):
-                self.setOption(option.name, val)
-            else:
-                self.setOption(option.name, None)
-            if (action != DiffResult.ADDENTRY):
-                newResult.result[option.dsedn][action].pop(option.dsename, None)
+            if option.dsedn:
+                dsedn = self.getPath(option.dsedn)
+                action, val = newResult.getSingleValuedValue(dsedn, option.dsename)
+                if action:
+                    if (action != DiffResult.DELETEVALUE):
+                        self.setOption(option.name, val)
+                    else:
+                        self.setOption(option.name, None)
+                    if (action != DiffResult.ADDENTRY):
+                        newResult.result[dsedn][action].pop(option.dsename, None)
         return newResult
 
     def _getInstanceStatus(self, dirSrv="get it"):
@@ -943,7 +1167,7 @@ class YAMLInstance(MyYAMLObject):
 
         actions = self.getAllActions(self)
         for action in actions:
-            if isinstance(action.option, ConfigOption):
+            if action.option.configtag:
                 action.perform(OptionAction.CONFIG)
         s = SetupDs(log=log)
         general, slapd, backends = s._validate_ds_config(config)

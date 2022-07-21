@@ -54,7 +54,7 @@ $(SRCBASE)/plugins/module_utils/dsentities_options.py: utils/gendoc.py $(SRCBASE
 	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp
 	mv -f $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp $(SRCBASE)/plugins/module_utils/dsentities_options.py
 
-$(SRCBASE)/playbooks/roles/dsserver/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/dsserver/README.tmpl $(SRCBASE)/playbooks/*.yml
+$(SRCBASE)/playbooks/roles/dsserver/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/dsserver/README.tmpl $(SRCBASE)/playbooks/*.yml  $(SRCBASE)/plugins/module_utils/dsentities.py
 	python ./utils/gendoc.py readme
 
 # Create an ini file that could be customized to run the unit_test

@@ -58,6 +58,8 @@ CLASSES = (
     'nsencryptionmodule',
     'nsindex',
     'nsmappingtree',
+    'nsds5replica',
+    'nsds5replicationagreement',
     'nssaslmapping',
     'nsschemapolicy',
     'nsslapdconfig',
@@ -200,6 +202,9 @@ class NormalizedDict(dict, yaml.YAMLObject):
             nkey = ensure_str(key).lower()
             if re.match("^[a-z][a-z0-9-]* *= .*", nkey):
                 nkey = normalizeDN(key)
+            for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
+                nkey = nkey.replace(k, v);
+            #log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
         return nkey
 
     def get(self, key):
@@ -426,7 +431,7 @@ class LdapOp(yaml.YAMLObject):
 class Entry:
     def __init__(self, dn, attributes):
         self._op = LdapOp(LdapOp.ADD_ENTRY, dn)
-        self._ndn = normalizeDN(dn)
+        self._ndn = NormalizedDict.normalize(dn)
         for attr, vals in attributes.items():
             self._op.add_values(attr, vals)
 

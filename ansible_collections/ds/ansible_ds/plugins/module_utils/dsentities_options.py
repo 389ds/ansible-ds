@@ -332,9 +332,20 @@ CONTENT_OPTIONS = {
                         ),
                     },
                     'suffix': {
-                        'description': 'Desc.',
+                        'description': 'DN subtree root of entries managed by this backend..',
                         'required': True,
                         'type': 'str',
+                    },
+                    'ReplicaRole': {
+                        'description': 'The replica role..',
+                        'required': False,
+                        'type': 'str',
+                        'choices': (
+                            'None',
+                            'supplier',
+                            'hub',
+                            'consumer',
+                        ),
                     },
                     'chain_bind_dn': {
                         'description': 'Desc.',
@@ -348,6 +359,31 @@ CONTENT_OPTIONS = {
                     },
                     'chain_urls': {
                         'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'changelogencryptionalgorithm': {
+                        'description': 'Encryption algorithm used to encrypt the changelog..',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'changelogmaxage': {
+                        'description': 'Changelog record lifetime.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'changelogmaxentries': {
+                        'description': 'Max number of changelog records.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'changelogsymetrickey': {
+                        'description': 'Encryption key (if changelog is encrypted).',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'changelogtriminterval': {
+                        'description': 'Time (in seconds) between two runs of the changlog trimming. .',
                         'required': False,
                         'type': 'str',
                     },
@@ -382,15 +418,262 @@ CONTENT_OPTIONS = {
                         'default': False,
                         'type': 'str',
                     },
+                    'replicabackoffmax': {
+                        'description': 'Maximum delay before retrying to send updates after a recoverable failure.',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicabackoffmin': {
+                        'description': 'Minimum time before retrying to send updates after a recoverable failure.',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicabinddn': {
+                        'description': 'DN of the user allowed to replay updates on this replica.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'replicabinddngroup': {
+                        'description': 'DN of the group containing users allowed to replay updates on this replica.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'replicabinddngroupcheckinterval': {
+                        'description': 'Interval between detection of the bind dn group changes.',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicaid': {
+                        'description': 'The unique ID for suppliers in a given replication environment (between 1 and 65534)..',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicaprecisetombstonepurging': {
+                        'description': '???.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'replicaprotocoltimeout': {
+                        'description': 'Timeout used when stopping replication to abort ongoing operations..',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicapurgedelay': {
+                        'description': 'The maximum age of deleted entries (tombstone entries) and entry state information..',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'replicareferral': {
+                        'description': 'The user-defined referrals (returned when a write operation is attempted on a hub or a consumer..',
+                        'required': False,
+                        'type': 'list',
+                    },
+                    'replicareleasetimeout': {
+                        'description': 'The timeout period (in seconds) after which a master will release a replica..',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicatombstonepurgeinterval': {
+                        'description': 'The time interval in seconds between purge operation cycles..',
+                        'required': False,
+                        'type': 'int',
+                    },
+                    'replicatransportinfo': {
+                        'description': 'The type of transport used for transporting data to and from the replica..',
+                        'required': False,
+                        'type': 'str',
+                        'choices': (
+                            'LDAP',
+                            'SSL',
+                            'TLS',
+                        ),
+                    },
+                    'replicaupdateschedule': {
+                        'description': 'Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing hour, and the numbers 0123456 are the days of the week starting with Sunday..',
+                        'required': False,
+                        'type': 'list',
+                    },
+                    'replicawaitforasyncresults': {
+                        'description': 'Delay in milliseconds before resending an update if consumer does not acknowledge it..',
+                        'required': False,
+                        'type': 'int',
+                    },
                     'require_index': {
                         'description': 'Desc.',
                         'required': False,
                         'type': 'str',
                     },
                     'sample_entries': {
-                        'description': 'Desc.',
+                        'description': 'Tells whether sample entries are created on this backend when the instance is created.',
                         'required': False,
-                        'type': 'str',
+                        'type': 'bool',
+                    },
+                    'agmts': {
+                        'description': 'List of agmts options.',
+                        'required': False,
+                        'type': 'list',
+                        'elements': 'dict',
+                        'options': {
+                            'name': {
+                                'description': """agmt's name.""",
+                                'type': 'str',
+                                'required': True,
+                            },
+                            'state': {
+                                'description': 'Indicate whether the replication agreement is added(present), modified(updated), or removed(absent).',
+                                'required': False,
+                                'default': 'present',
+                                'type': 'str',
+                                'choices': (
+                                    'present',
+                                    'updated',
+                                    'absent',
+                                ),
+                            },
+                            'replicabinddn': {
+                                'description': 'The DN used to connect to the target instance.',
+                                'required': False,
+                                'type': 'str',
+                            },
+                            'replicabindmethod': {
+                                'description': 'The bind Method.',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'SIMPLE',
+                                    'SSLCLIENTAUTH',
+                                    'SASL/GSSAPI',
+                                    'SASL/DIGEST-MD5',
+                                ),
+                            },
+                            'replicabootstrapbinddn': {
+                                'description': 'The fallback bind dn used after getting authentication error.',
+                                'required': False,
+                                'type': 'str',
+                            },
+                            'replicabootstrapbindmethod': {
+                                'description': 'The fallback bind method.',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'SIMPLE',
+                                    'SSLCLIENTAUTH',
+                                    'SASL/GSSAPI',
+                                    'SASL/DIGEST-MD5',
+                                ),
+                            },
+                            'replicabootstrapcredentials': {
+                                'description': 'The credential associated with the fallback bind.',
+                                'required': False,
+                                'type': 'str',
+                            },
+                            'replicabootstraptransportinfo': {
+                                'description': 'The encryption method used on the connection after an authentication error..',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'LDAP',
+                                    'TLS',
+                                    'SSL',
+                                ),
+                            },
+                            'replicabusywaittime': {
+                                'description': 'The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access.',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicacredentials': {
+                                'description': 'The crendential associated with the bind.',
+                                'required': False,
+                                'type': 'str',
+                            },
+                            'replicaenabled': {
+                                'description': 'A flags telling wheter the replication agreement is enabled or not..',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'on',
+                                    'off',
+                                ),
+                            },
+                            'replicaflowcontrolpause': {
+                                'description': 'the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached..',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicaflowcontrolwindow': {
+                                'description': 'The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsds5ReplicaFlowControlPause parameter.',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicahost': {
+                                'description': 'The target instance hostname.',
+                                'required': False,
+                                'type': 'str',
+                            },
+                            'replicaignoremissingchange': {
+                                'description': 'Tells how the replication behaves when a csn is missing..',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'never',
+                                    'once',
+                                    'always',
+                                    'on',
+                                    'off',
+                                ),
+                            },
+                            'replicaport': {
+                                'description': 'Target instance port.',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicasessionpausetime': {
+                                'description': 'The amount of time in seconds a supplier should wait between update sessions.',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicastripattrs': {
+                                'description': 'Fractionnal replication attributes that does get replicated if the operation modifier list contains only these agreement.',
+                                'required': False,
+                                'type': 'list',
+                            },
+                            'replicatedattributelist': {
+                                'description': 'List of replication attribute ithat are not replicated in fractionnal replication.',
+                                'required': False,
+                                'type': 'list',
+                            },
+                            'replicatedattributelisttotal': {
+                                'description': 'List of attributes that are not replicated during a total update.',
+                                'required': False,
+                                'type': 'list',
+                            },
+                            'replicatimeout': {
+                                'description': 'The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing.',
+                                'required': False,
+                                'type': 'int',
+                            },
+                            'replicatransportinfo': {
+                                'description': 'The encryption method used on the connection.',
+                                'required': False,
+                                'type': 'str',
+                                'choices': (
+                                    'LDAP',
+                                    'TLS',
+                                    'SSL',
+                                ),
+                            },
+                            'replicaupdateschedule': {
+                                'description': 'The replication schedule..',
+                                'required': False,
+                                'type': 'list',
+                            },
+                            'replicawaitforasyncresults': {
+                                'description': 'The time in milliseconds for which a supplier waits if the consumer is not ready before resending data..',
+                                'required': False,
+                                'type': 'str',
+                            },
+                        },
                     },
                     'indexes': {
                         'description': 'List of indexes options.',
