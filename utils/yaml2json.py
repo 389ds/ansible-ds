@@ -9,14 +9,9 @@
 #
 
 #
-# Usage: j2y.py json_file_path
-#  Generate a json_file_path.yml file containing the YAML
+# Usage: yaml2json.py yaml_file_path
+#  Generate a yaml_file_path.json file containing the JSON
 #
-# Example: to collect ds state then replay then:
-#   echo '{ "ANSIBLE_MODULE_ARGS": { "prefix" : "'"$PREFIX"'" } }' | ds_info.py > /tmp/o
-#   j2y.py /tmp/o
-#   dsupdate.py /tmp/o.yml
-
 
 import sys
 import os

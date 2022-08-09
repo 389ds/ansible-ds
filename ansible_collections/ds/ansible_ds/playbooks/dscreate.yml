@@ -1,47 +1,38 @@
-- name: Playbook to create a new instance if it does not alreadfy exist
+---
+- name: Playbook to create a set of DS instances
   hosts: localhost
+
+  vars:
+    # In a real deployment, variables should be customized
+    # In this playbook all the variables are commented out because
+    # they are provided by the calling test playbook
+
+    # Mandatory variables:
+
+    # dsserver_rootpw: The default Directory manager password
+    # In real deployment it should be set by using:
+    #  ansible-vault encrypt_string --stdin-name dsserver_rootpw
+    # i.e:
+    #dsserver_rootpw: !vault |
+    #     $ANSIBLE_VAULT;1.1;AES256
+    #     65386361623432656133343230333636626164353230623935616632636361356265623530366232
+    #     6662333634333066613430616461623433633766333936330a616239636266666465343235316666
+    #     34373235366537323163623339373332323338326266356339303337363736646563623862366261
+    #     3435303734383335390a323638313539333338313866636134393731306162343837393966333735
+    #     6134
+
+    # Optionnal variables:
+    # Description format is:  # variableName (default value) : description
+
+    # dsserver_instance (myinstance) : Instance name
+    # dsserver_port (389) : Non secure port (could be 0 if there is no such port)
+    # dsserver_secure_port (636) : Secure port (could be 0 if there is no such port)
+    # dsserver_backends (None): Backend map using the backend name: suffix notation
+
+
   collections:
     - ds.ansible_ds
 
   roles:
-  - role: ansible_collections/ds/ansible_ds/playbooks/roles/install_dspkg
-    state: present
-
-  vars:
-    instdict:  "{{
-        {
-            instance:
-              {
-                'state': 'present',
-                'port': port,
-                'secure_port': secure_port,
-                'root_password': rootpw,
-                'backends': bedict,
-              }
-        }
-    }}"
-
-  tasks:
-    - name: load encrypted variables
-      include_vars: "vault.yml" 
-
-    - name: load the instance configuration variables from dscreat_config.yml
-      include_vars: "dscreat_config.yml"
-
-    - name: populate the backends dict variable
-      set_fact:
-        bedict: "{{ bedict|default({}) | combine( {item.key: { 'suffix': item.value, 'state': 'present'} } ) }}"
-      loop: "{{ backends|dict2items }}"
-
-    - name: debug instdict
-      debug:
-        var: instdict
-
-    - ds.ansible_ds.ds_update:
-       content:
-          state: present
-          prefix:  "{{ lookup('env', 'PREFIX') | default('', True) }}"
-          instances: "{{instdict}}"
-      tags: vars
-
-
+    - role: dsserver
+      state: present

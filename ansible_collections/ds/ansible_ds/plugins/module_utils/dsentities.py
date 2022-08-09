@@ -54,10 +54,12 @@ from lib389 import DirSrv
 from lib389.dseldif import DSEldif
 from lib389.backend import Backend
 from lib389.instance.setup import SetupDs
-from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
+from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue, get_instance_list
+from lib389._constants import ReplicaRole
+from lib389.replica import Replicas, Replica, Changelog
 
 from configparser import ConfigParser
-from .dsutil import NormalizedDict, DSE, DiffResult, getLogger, add_s, delete_s, modify_s
+from .dsutil import NormalizedDict, DSE, DiffResult, getLogger, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp
 
 ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
@@ -67,14 +69,86 @@ log = None
 def isTrue(val):
     return val is True or val.lower() in ("true", "started")
 
+def _get_new_value(inst, dn, attr):
+    # Get value from entity or from dse.ldif file
+    v = getattr(inst, 'root_dn', None)
+    if v is not None:
+        return v
+    dse = inst.getDSE()
+    return dse.getSingleValue(dn, attr)
+
+
+def _is_password_ignored(inst, action):
+    # Check if provided password is the same than the instance one.
+    # We cannot compare the value because it is hashed so we try to bind.
+    #log.info(f'Entering _is_password_ignored checking password {action.vto} against instance {inst.name}')
+    if action.vto.startswith('{'):
+        # Provided value is hashed and different from previous hash value
+        # ==> let assume that the password changed.
+        #log.info('Exiting _is_password_ignored returning False because password seems already hashed')
+        return False
+    dirsrv = inst.getDirSrv(mode=YAMLInstance.DIRSRV_NOLDAPI)
+    if dirsrv is None:
+        # We are creating a new instance and we need the password.
+        #log.info('Exiting _is_password_ignored returning False because instance does not exists.')
+        return False
+    dirsrv.binddn = _get_new_value(inst, 'cn=config', 'nsslapd-rootdn')
+    dirsrv.sslport = _get_new_value(inst, 'cn=config', 'nsslapd-secureport')
+    dirsrv.port = _get_new_value(inst, 'cn=config', 'nsslapd-port')
+    dirsrv.bindpw = action.vto
+    if dirsrv.sslport:
+        uri = f"ldaps://{ensure_str(dirsrv.host)}:{dirsrv.sslport}"
+        try:
+            log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldaps.")
+            dirsrv.open(uri=f"ldaps://{ensure_str(dirsrv.host)}:{dirsrv.sslport}")
+            log.debug(f"Success ==> password did not changed.")
+            #log.info('Exiting _is_password_ignored returning True because ldaps bind is successful.')
+            return True
+        except ldap.LDAPError as e:
+            log.debug(f"Failed ==> error is {e}.")
+    try:
+        log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap with starttls.")
+        dirsrv.open(uri=f"ldap://{ensure_str(dirsrv.host)}:{dirsrv.port}", starttls=True)
+        log.debug(f"Success ==> password did not changed.")
+        #log.info('Exiting _is_password_ignored returning True because ldap bind with starttls is successful.')
+        return True
+    except ldap.LDAPError as e:
+        log.debug(f"Failed ==> error is {e}.")
+    try:
+        log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap without starttls.")
+        dirsrv.open(uri=f"ldap://{ensure_str(dirsrv.host)}:{dirsrv.port}", starttls=False)
+        log.debug(f"Success ==> password did not changed.")
+        #log.info('Exiting _is_password_ignored returning True because ldap bind is successful.')
+        return True
+    except ldap.LDAPError as e:
+        #log.info(f'Exiting _is_password_ignored returning False because lfap bind failed with error {e}')
+        log.debug(f"Failed ==> error is {e}.")
+    return False
+
+
+def _is_none_ignored(inst, action):
+    return action.vto is None or action.vto == 'None'
+
 
 # class handling ansible-ds parameters for each YAML Object
 class Option:
-    def __init__(self, name, desc):
-        self.name = name
-        self.desc = desc
-        self.prio = 10
-        self.rdonly = False
+    def __init__(self, name, desc, prio=10, actionCbName=None, dseName=None, dseDN=None, configName=None,
+            configTag=None, choice=None, hidden=False, isIgnoredCb=None, readonly=False, required=False, vdef=None, type="str"):
+        self.name = name                 # Ansible variable name
+        self.desc = desc                 # Human readable description
+        self.prio = prio                 # Priority order ( low priority parameters are handled first )
+        self.actioncbname = actionCbName # Name of action handler cb in entity object
+        self.dsename = dseName           # Attribute name in dse.ldif file
+        self.dsedn = dseDN               # Entry DN in dse.ldif file (may refer to the entity attributes have lower priority)
+        self.configname = configName     # Attribute name in dscreate config file (cf dscreate create-template --advanced)
+        self.configtag = configTag       # Attribute section in dscreate config file (cf dscreate create-template --advanced)
+        self.choice = choice             # Allowed values if attribute is a choice
+        self.hidden = hidden             # Tell whether attribute value is hidden (i.e not logged)
+        self.isignoredcb = isIgnoredCb   # Callback to determine if attribute should be taken in account
+        self.readonly = readonly         # True means that attribute change should be done when instance is stopped.
+        self.required = required         # True means that attribute is mandatory.
+        self.vdef = vdef                 # Default value.
+        self.type = type                 # Attribute python type
 
     def __repr__(self):
         repr = f"Option({self.name}"
@@ -87,64 +161,89 @@ class Option:
         return repr
 
     def _get_action(self, target, facts, vfrom, vto):
+        if self.actioncbname:
+            func = getattr(target, self.actioncbname)
+            return ( OptionAction(self, target, facts, vfrom, vto, func), )
+        if self.dsedn:
+            return ( OptionAction(self, target, facts, vfrom, vto, Option._action), )
         return []
-
-# class handling the Option associated with ds389 parameters that are in dse.ldif
-class DSEOption(Option):
-    def __init__(self, dsename, dsedn, vdef, desc):
-        name = dsename.replace("-", "_").lower()
-        Option.__init__(self, name, desc)
-        self.dsename = dsename
-        self.dsedn = dsedn
-        self.vdef = vdef
-
-    def _get_action(self, target, facts, vfrom, vto):
-        return ( OptionAction(self, target, facts, vfrom, vto, DSEOption._action), )
 
     def _action(self=None, action=None, action2perform=None):
         option = action.option
         dsedn = action.target.getPath(option.dsedn)
         if action2perform == OptionAction.DESC:
-            return f"Set {option.dsename}:{action.vto} in {dsedn}"
+            if option.hidden:
+                return f"Set {option.dsename} in {dsedn}"
+            else:
+                return f"Set {option.dsename}:{action.vto} in {dsedn}"
         elif action2perform == OptionAction.DEFAULT:
             vdef = getattr(action.option, 'vdef', None)
             if vdef:
                 return vdef
             return action.target.getDefaultDSE().getSingleValue(dsedn, option.dsename)
         elif action2perform == OptionAction.FACT:
+            #log.info(f"_action: OptionAction.FACT  dsedn={dsedn} {option.dsename}")
             return action.target.getDSE().getSingleValue(dsedn, option.dsename)
         elif action2perform == OptionAction.CONFIG:
             val = action.getValue()
             log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
             if val is not None:
-                action.target._infConfig['slapd'][option.name] = str(val)
+                name = option.configname
+                if name is None:
+                    name = option.name
+                action.target._infConfig['slapd'][name] = str(val)
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            if dsedn and not action.option.rdonly:
+            if dsedn:
                 action.target.addModifier(dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
+
+
+# class handling the Option associated with ds389 parameters that are in dse.ldif
+class DSEOption(Option):
+    def __init__(self, dsename, dsedn, vdef, desc, **kwargs):
+        name = dsename.replace("-", "_").lower()
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
 
 # class handling the Option associated with ds389 parameters that are in dscreate template file
 class ConfigOption(DSEOption):
-    def __init__(self, name, dsename, dsedn, vdef, desc):
-        DSEOption.__init__(self, name, dsedn, vdef, desc)
-        self.dsename = dsename
+    def __init__(self, name, dsename, dsedn, vdef, desc, **kwargs):
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
+        if not self.configname:
+            self.configname = name
+        if not self.configtag:
+            self.configtag = "slapd"
 
-# For read-only attributes (or attributes that cannot be changed while server is on line
-class ConfigOptionRO(ConfigOption):
-    def __init__(self, name, dsename, dsedn, vdef, desc):
-        super().__init__(name, dsename, dsedn, vdef, desc)
-        self.rdonly = True
 # class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
-    def __init__(self, name, prio, desc):
-        Option.__init__(self, name, desc)
-        self.prio = prio
-        self.desc = desc
+    def __init__(self, name, prio, desc, vdef=None, **kwargs):
+        Option.__init__(self, name, desc, prio=prio, actionCbName=f'_{name}Action', vdef=vdef, **kwargs)
 
-    def _get_action(self, target, facts, vfrom, vto):
-        funcName = f"_{self.name}Action"
-        func = getattr(target, funcName)
-        return ( OptionAction(self, target, facts, vfrom, vto, func), )
+# class handling replica parameters
+class ReplicaOption(Option):
+    DSEDN = 'cn=replica,cn={suffix},cn=mapping tree,cn=config'
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsds5{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=ReplicaOption.DSEDN, **kwargs)
+
+# class handling replica parameters
+class ChangelogOption(Option):
+    DSEDN = 'cn=changelog,cn={bename},cn=ldbm database,cn=plugins,cn=config'
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsslapd{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=ChangelogOption.DSEDN, **kwargs)
+
+# class handling replication agreement parameters
+class AgmtOption(Option):
+    AGMTDN = "{agmtDN}"
+
+    def __init__(self, name, desc, **kwargs):
+        name=name.lower()
+        dsename = f'nsds5{name}'
+        Option.__init__(self, name, desc, dseName=dsename, dseDN=AgmtOption.AGMTDN, **kwargs)
 
 # utility class used to perform action on an Option
 class OptionAction:
@@ -187,14 +286,17 @@ class MyYAMLObject(yaml.YAMLObject):
     yaml_loader = yaml.SafeLoader
     PARAMS = {
         'name' :  "Instance name",
-        'state' :  "Could be set to 'absent' (to remove the instance) or 'present' (the default value)"
     }
     OPTIONS = (
         # A list of Option ojects
     )
-    CHILDREN = (
+    OPTIONS_META = {
+        # The options meta data (cf mutually_exclusive, required_together, required_one_of, required_if, required_by in
+        # https://docs.ansible.com/ansible/latest/dev_guide/developing_program_flow_modules.html#argument-spec
+    }
+    CHILDREN = {
         # A dict (variableNamner:, objectClassi) of variable that contains a list of MyYAMLObject
-    )
+    }
     HIDDEN_VARS =  (
         # A list of pattern of variable that should not be dumped in YAML
     )
@@ -224,10 +326,15 @@ class MyYAMLObject(yaml.YAMLObject):
             if key in self.CHILDREN.keys():
                 newval = {}
                 # Lets recurse on the children objects
-                for name, obj in val.items():
+                for name, obj in dictlist2dict(val).items():
                     newval[name] = self.CHILDREN[key](name, parent=self)
                     newval[name].set(obj)
                 self.setOption(key, newval)
+                continue
+            if key in ('state',):
+                self.setOption(key, val)
+                continue
+            if val is None:
                 continue
             # And finally handles the rgular options
             self.setOption(key, val)
@@ -239,6 +346,7 @@ class MyYAMLObject(yaml.YAMLObject):
         self.validate()
 
     def todict(self):
+        # convert list of dict to dict of dict whose key is name
         res = {}
         for key, val in self.__dict__.items():
             if key.startswith('_'):
@@ -254,8 +362,31 @@ class MyYAMLObject(yaml.YAMLObject):
                 continue
             # And finally handles the regular options
             res[key] = val
-            log.info(f"todict: {self.name} {key} <-- {val}")
+            #log.info(f"todict: {self.name} {key} <-- {val}")
         return res
+
+
+    def tolist(self):
+        # convert dict of dict whose key is name to list of dict
+        res = {}
+        for key, val in self.__dict__.items():
+            if key.startswith('_'):
+                continue
+            if key in ('tag', 'name'):
+                continue
+            if key in self.CHILDREN.keys():
+                newval = []
+                # Lets recurse on the children objects
+                for name, obj in val.items():
+                    child = obj.tolist()
+                    child['name'] = name
+                    newval.append(child)
+                res[key] = newval
+                continue
+            # And finally handles the regular options
+            res[key] = val
+        return res
+
 
     def setCtx(self):
         self._infConfig = ConfigParser()
@@ -331,7 +462,7 @@ class MyYAMLObject(yaml.YAMLObject):
             state.pop(var, None)
         for var in self.CHILDREN.keys():
             list = self.__dict__[var]
-            # Meeds to keep YAMLRoot instances even if it is empty
+            # Needs to keep YAMLRoot instances even if it is empty
             if len(list) == 0 and not isinstance(self, YAMLRoot):
                 state.pop(var, None)
         return state
@@ -365,12 +496,12 @@ class MyYAMLObject(yaml.YAMLObject):
             raise yaml.YAMLError(f"Unexpected  parameters {dictCopy.keys()} in {self.getClass()} object {self}")
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(variables={self.__dict__})"
+        #return f"{self.__class__.__name__}(variables={self.__dict__})"
         return f"{self.__class__.__name__}(name={self.name}, variables={self.__dict__})"
 
     def getFacts(self):
         ### populate the object (should be implemented in subclasses)
-        assert False
+        raise NotImplementedError("Should not be here because this method is only implented in the subclasses.")
 
     def findFact(self, facts):
         if not facts:
@@ -398,30 +529,6 @@ class MyYAMLObject(yaml.YAMLObject):
                 actions.append(action)
         return sorted(actions, key = lambda x : x.getPrio())
 
-    def addModsToSummary(self, mods, summary):
-        for dn, actionDict in mods.items():
-            for action in actionDict:
-                for attr, vals in actionDict[action].items():
-                    if action == DiffResult.ADDENTRY:
-                        summary.append((f"Adding entry {dn}",))
-                        for val in vals:
-                            summary.append((f"Adding value in entry {dn} <-- {attr}={val}",))
-                    elif DiffResult.DELETEENTRY in actionDict:
-                        summary.append((f"Deleting entry {dn}",))
-                        assert len(actionDict) == 1
-                    elif action == DiffResult.ADDVALUE:
-                        for val in vals:
-                            summary.append((f"Adding value in entry {dn} <-- {attr}={val}",))
-                    elif action == DiffResult.DELETEVALUE:
-                        if vals == [ None ] or vals is None:
-                            summary.append((f"Deleting attribute in entry {dn} <-- {attr}",))
-                        else:
-                            for val in vals:
-                                summary.append((f"Deleting value in entry {dn} <-- {attr}={val}",))
-                    elif action == DiffResult.REPLACEVALUE:
-                        for val in vals:
-                            summary.append((f"Replacing value(s) in entry {dn} <-- {attr}={val}",))
-
 
     def update(self, facts=None, summary=[], onlycheck=False, args=None):
         if not facts:
@@ -429,30 +536,36 @@ class MyYAMLObject(yaml.YAMLObject):
             facts.getFacts()
         facts = self.findFact(facts)
 
+        # Determine if the change should be logged in first phase
+        # Note: if updating an already existing instance then messages are displayed by applyMods
+        inst = self.getYAMLInstance()
+        display_msg = True
+        if inst and not inst._mustCreate:
+            display_msg = False
         log.debug(f"Updating instance {self.name}  with facts {facts.name}")
 
         actions = self.getAllActions(facts)
         for action in actions:
+            log.debug(f"MyYAMLObject.update: action={action}")
             if self._isDeleted is True:
                 return
             if action.vfrom == action.vto:
                 continue
+            func = action.option.isignoredcb
+            if func and func(self, action):
+                continue
             msg = action.perform(OptionAction.DESC)
-            if (msg):
-                log.info(msg)
+            if msg and display_msg:
+                log.debug(f'SUMMARY += {msg}')
+                summary.extend((msg,))
             if getattr(args, "no_actions", False):
                 continue
+            if onlycheck:
+                continue
             action.perform(OptionAction.UPDATE)
-        inst = self.getYAMLInstance()
-        if inst and not action.option.rdonly:
-            if not onlycheck:
-                inst.applyMods(self._cfgMods)
-                self.addModsToSummary(self._cfgMods, summary)
-            dseMods = getattr(self, "dseMods", None)
-            if dseMods:
-                self.addModsToSummary(dseMods, summary)
-                if inst and not action.option.rdonly:
-                    inst.applyMods(dseMods)
+        if inst:
+           inst.applyMods(self._cfgMods, summary, onlycheck)
+           inst.applyMods(getattr(self, "dseMods", None), summary, onlycheck)
 
         for var in self.CHILDREN.keys():
             list = self.__dict__[var]
@@ -467,9 +580,9 @@ class MyYAMLObject(yaml.YAMLObject):
 class YAMLIndex(MyYAMLObject):
     IDXDN = 'cn={attr},cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config'
     OPTIONS = (
-        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)" ),
+        ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)", required=True ),
         ConfigOption('systemindex', 'nsSystemIndex', IDXDN, "off", "Tells if the index is a system index" ),
-        SpecialOption('state', 2, "Indicate whether the index is (or should be) present or absent" ),
+        SpecialOption('state', 2, "Indicate whether the index is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
     def __init__(self, name, parent=None):
@@ -495,6 +608,8 @@ class YAMLIndex(MyYAMLObject):
         option = action.option
         bename = self.getPath("{bename}")
         log.debug(f"YAMLindex._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
+        if _is_none_ignored(self, action):
+            action.vto = "present"
         if action2perform == OptionAction.DESC:
             if action.vto == "present":
                 return f"Creating index {action.target.name} on backend {bename}"
@@ -529,13 +644,104 @@ class YAMLIndex(MyYAMLObject):
                 idx = Index(inst.getDirSrv(), dn=dn)
                 idx.delete()
 
+class YAMLAgmt(MyYAMLObject):
+    OPTIONS = (
+        SpecialOption('state', 2, "Indicate whether the replication agreement is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
+
+        # AgmtOption('BeginReplicaRefresh', "desc"),   Not an attribut but a action/task
+        AgmtOption('ReplicaBindDN', "The DN used to connect to the target instance"),
+        #AgmtOption('ReplicaBindDNGroup', "desc"),
+        #AgmtOption('ReplicaBindDNGroupCheckInterval', "desc"),
+        AgmtOption('ReplicaBindMethod', "The bind Method",  choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+        AgmtOption('ReplicaBootstrapBindDN', "The fallback bind dn used after getting authentication error"),
+        AgmtOption('ReplicaBootstrapBindMethod', "The fallback bind method", choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+
+        AgmtOption('ReplicaBootstrapCredentials', "The credential associated with the fallback bind"),
+        AgmtOption('ReplicaBootstrapTransportInfo', "The encryption method used on the connection after an authentication error.", choice= ("LDAP", "TLS", "SSL" )),
+        AgmtOption('ReplicaBusyWaitTime', "The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access", type="int"),
+        AgmtOption('ReplicaCredentials', "The crendential associated with the bind"),
+        AgmtOption('ReplicaEnabled', "A flags telling wheter the replication agreement is enabled or not.", choice= ("on", "off")),
+        AgmtOption('ReplicaFlowControlPause', "the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached.", type="int"),
+        AgmtOption('ReplicaFlowControlWindow', "The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsds5ReplicaFlowControlPause parameter", type="int"),
+        AgmtOption('ReplicaHost', "The target instance hostname"),
+        AgmtOption('ReplicaIgnoreMissingChange', "Tells how the replication behaves when a csn is missing.", choice= ("never", "once", "always", "on", "off") ),
+        AgmtOption('ReplicaPort', "Target instance port", type="int"),
+        #AgmtOption('ReplicaRoot', "Replicated suffix DN"),   # Same as the parent backend suffix
+        AgmtOption('ReplicaSessionPauseTime', "The amount of time in seconds a supplier should wait between update sessions", type="int"),
+        AgmtOption('ReplicaStripAttrs', "Fractionnal replication attributes that does get replicated if the operation modifier list contains only these agreement", type = "list"),
+        AgmtOption('ReplicatedAttributeList', "List of replication attribute ithat are not replicated in fractionnal replication", type = "list"),
+        AgmtOption('ReplicatedAttributeListTotal', "List of attributes that are not replicated during a total update", type="list"),
+        AgmtOption('ReplicaTimeout', "The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing", type="int"),
+        AgmtOption('ReplicaTransportInfo', "The encryption method used on the connection", choice= ("LDAP", "TLS", "SSL") ),
+
+        AgmtOption('ReplicaUpdateSchedule', "The replication schedule.", type="list"),
+        AgmtOption('ReplicaWaitForAsyncResults', "The time in milliseconds for which a supplier waits if the consumer is not ready before resending data."),
+    )
+
+    def MyPathNames(self):
+        agmtDN= f"cn={self.name},{self._parent.getPath(ReplicaOption.DSEDN)}"
+        return { 'agmtDN' : agmtDN }
+
+    def getFacts(self):
+        actions = self.getAllActions(self)
+        bename = self.getPath("{bename}")
+        for action in actions:
+            val = action.perform(OptionAction.FACT)
+            vdef = action.perform(OptionAction.DEFAULT)
+            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            if val and val != vdef:
+                setattr(self, action.option.name, val)
+
+    def _stateAction(self=None, action=None, action2perform=None):
+        option = action.option
+        bename = self.getPath("{bename}")
+        log.debug(f"YAMLAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
+        if _is_none_ignored(self, action):
+            action.vto = "present"
+        if action2perform == OptionAction.DESC:
+            if action.vto == "present":
+                return f"Creating agreement {action.target.name} on backend {bename}"
+            else:
+                return f"Deleting agreement {action.target.name} on backend {bename}"
+        elif action2perform == OptionAction.DEFAULT:
+            return "present"
+        elif action2perform == OptionAction.FACT:
+            dse = action.target.getDSE()
+            if dse.getEntry(self.getPath(AgmtOption.AGMTDN)):
+                return 'present'
+            else:
+                return 'absent'
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            inst = action.target.getYAMLInstance()
+            baseDN = action.target._parent.getPath(ReplicaOption.DSEDN)
+            if action.vto == "present":
+                # In fact that is the rdn that Backend.create method needs.
+                dn = f'cn={action.target.name}'
+                actions = action.target.getAllActions(action.target)
+                for a in actions:
+                    if getattr(a.option, 'dsedn', None) == AgmtOption.AGMTDN and a.getValue():
+                        mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
+                agmt = Agreement(inst.getDirSrv())
+                log.debug(f"Creating agmt dn:{dn},{baseDN} properties:{mods}")
+                agmt.create(dn, mods, baseDN)
+            else:
+                dn = action.target.getPath(AgmtOption.AGMTDN)
+                agmt = Agreement(inst.getDirSrv(), dn=dn)
+                agmt.delete()
+
 
 class YAMLBackend(MyYAMLObject):
-    CHILDREN = { 'indexes': YAMLIndex }
+    CHILDREN = { 'indexes': YAMLIndex, 'agmts': YAMLAgmt }
     BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
+    # Replication (type, flags, ReplicaRolem, promoteWeight) per roles
+    REPL_ROLES = { None: ( "0", "0", ReplicaRole.STANDALONE, 0 ), "supplier": ( "3", "1", ReplicaRole.SUPPLIER, 3 ), "hub": ( "2", "1", ReplicaRole.HUB, 2 ), "consumer": ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
+
     OPTIONS = (
-        DSEOption('read-only', BEDN, "False", "Desc" ),
-        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc" ),
+        DSEOption('readonly', BEDN, "False", "Desc" ),
+        ConfigOption('require_index', 'nsslapd-require-index', BEDN, None, "Desc", isIgnoredCb=_is_none_ignored),
         DSEOption('entry-cache-number', BEDN, None, "Desc" ),
         DSEOption('entry-cache-size', BEDN, None, "Desc" ),
         DSEOption('dn-cache-size', BEDN, None, "Desc" ),
@@ -544,17 +750,44 @@ class YAMLBackend(MyYAMLObject):
         DSEOption('chain-bind-dn', BEDN, None, "Desc" ),
         DSEOption('chain-bind-pw', BEDN, None, "Desc" ),
         DSEOption('chain-urls', BEDN, None, "Desc" ),
-        ConfigOptionRO('suffix', 'nsslapd-suffix', BEDN, None, "Desc" ),
-        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Desc" ),
-        SpecialOption('state', 2, "Indicate whether the backend is (or should be) present or absent" ),
+        ConfigOption('suffix', 'nsslapd-suffix', BEDN, None, "DN subtree root of entries managed by this backend.", required=True, readonly=True, prio=5),
+        ConfigOption('sample_entries', 'sample_entries', BEDN, None, "Tells whether sample entries are created on this backend when the instance is created", type="bool" ),
+        SpecialOption('state', 2, "Indicate whether the backend is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
+        ChangelogOption('ChangelogEncryptionAlgorithm', "Encryption algorithm used to encrypt the changelog."),
+        ChangelogOption('ChangelogMaxAge', "Changelog record lifetime"),
+        ChangelogOption('ChangelogMaxEntries', "Max number of changelog records"),
+        ChangelogOption('ChangelogSymetricKey', "Encryption key (if changelog is encrypted)"),
+        ChangelogOption('ChangelogTrimInterval', "Time (in seconds) between two runs of the changlog trimming. "),
+        ReplicaOption('ReplicaBackoffMax', "Maximum delay before retrying to send updates after a recoverable failure", type="int"),
+        ReplicaOption('ReplicaBackoffMin', "Minimum time before retrying to send updates after a recoverable failure", type="int"),
+        ReplicaOption('ReplicaBindDNGroupCheckInterval', "Interval between detection of the bind dn group changes", type="int"),
+        ReplicaOption('ReplicaBindDNGroup', "DN of the group containing users allowed to replay updates on this replica"),
+        ReplicaOption('ReplicaBindDN', "DN of the user allowed to replay updates on this replica"),
+        ReplicaOption('ReplicaId', "The unique ID for suppliers in a given replication environment (between 1 and 65534).", type="int"),
+        ReplicaOption('ReplicaPreciseTombstonePurging', "???"),
+        ReplicaOption('ReplicaProtocolTimeout', "Timeout used when stopping replication to abort ongoing operations.", type="int"),
+        ReplicaOption('ReplicaPurgeDelay', "The maximum age of deleted entries (tombstone entries) and entry state information."),
+        ReplicaOption('ReplicaReferral', "The user-defined referrals (returned when a write operation is attempted on a hub or a consumer.", type="list"),
+        ReplicaOption('ReplicaReleaseTimeout', "The timeout period (in seconds) after which a master will release a replica.", type="int"),
+        ReplicaOption('ReplicaTombstonePurgeInterval', "The time interval in seconds between purge operation cycles.", type="int"),
+        ReplicaOption('ReplicaTransportInfo', "The type of transport used for transporting data to and from the replica.", choice=("LDAP","SSL","TLS")),
+        ReplicaOption('ReplicaUpdateSchedule', "Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing " +
+                                               "hour, and the numbers 0123456 are the days of the week starting with Sunday.", type="list"),
+        SpecialOption('ReplicaRole', 9, "The replica role.", choice=(None, "supplier", "hub", "consumer")),
+        ReplicaOption('ReplicaWaitForAsyncResults', "Delay in milliseconds before resending an update if consumer does not acknowledge it.", type="int"),
     )
+
+
 
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent=parent)
 
     def MyPathNames(self):
-        return { 'bename' : self.name }
+        s = getattr(self, 'suffix', None)
+        if s:
+            s = escapeDNFiltValue(normalizeDN(s))
+        return { 'bename' : self.name, 'suffix' : s }
 
     def getFacts(self):
         dse = self.getDSE()
@@ -564,7 +797,7 @@ class YAMLBackend(MyYAMLObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.info(f"Backend {self.name} option:{action.option.name} val:{val}")
+            log.debug(f"Backend {self.name} option:{action.option.name} val:{val}")
             if val and val != vdef:
                 setattr(self, action.option.name, val)
 
@@ -575,11 +808,99 @@ class YAMLBackend(MyYAMLObject):
                 if self.is_default_index(m.group(1), entry) is False:
                     index = YAMLIndex(m.group(1), parent=self)
                     index._beentrydn = dn
-                    self.indexes[index].name = index
+                    self.indexes[index.name] = index
                     index.getFacts()
+        if 'nsds5replicationagreement' in dse.class2dn:
+            replicaDN=NormalizedDict.normalize(self.getPath(ReplicaOption.DSEDN))
+            for dn in dse.class2dn['nsds5replicationagreement']:
+                entry = dse.dn2entry[dn]
+                if entry.getNDN().endswith(replicaDN):
+                    m = re.match(f'cn=([^,]*),cn=replica,cn=.*,cn=mapping tree,cn=config', dn)
+                    assert m
+                    agmt = YAMLAgmt(m.group(1), parent=self)
+                    agmt._beentrydn = dn
+                    self.agmts[agmt.name] = agmt
+                    agmt.getFacts()
+
+
+    def _getReplicaRole(self):
+        dse = self.getDSE()
+        if not dse:
+            return None
+        rentry = dse.getEntry(self.getPath(ReplicaOption.DSEDN))
+        if not rentry:
+            return None
+        flags = rentry.getSingleValue('nsDS5Flags')
+        type = rentry.getSingleValue('nsDS5ReplicaType')
+        for key, val in YAMLBackend.REPL_ROLES.items():
+            if (type, flags) == val[0:2]:
+                return key
+        return None
+
+    def _getReplica(self):
+        inst = self._parent.getDirSrv()
+        replicas = Replicas(inst)
+        replica = replicas.get(self.suffix)
+        if replica:
+            return replica
+        return Replica(inst, self.suffix)
+
+    def _getChangelog(self):
+        inst = self._parent.getDirSrv()
+        return Changelogi(inst, suffix=self.suffix)
+
+    def _ReplicaRoleAction(self=None, action=None, action2perform=None):
+        option = action.option
+        if _is_none_ignored(self, action):
+            action.vto = None
+        if action2perform == OptionAction.DESC:
+            if action.vto:
+                return f"Configure replication as {action.vto} for backend {action.target.name} on suffix {action.target.suffix}"
+            else:
+                return f"Unconfigure replication for backend {action.target.name} on suffix {action.target.suffix}"
+        elif action2perform == OptionAction.DEFAULT:
+            return None
+        elif action2perform == OptionAction.FACT:
+            return self._getReplicaRole()
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            tf_from = YAMLBackend.REPL_ROLES[action.vfrom]
+            tf_to = YAMLBackend.REPL_ROLES[action.vto]
+            from_weight = tf_from[3]
+            to_weight = tf_to[3]
+            if from_weight > to_weight:
+                # Should demote
+                if to_weight == 0:
+                    demote_role = ReplicaRole.CONSUMER
+                else:
+                    demote_role = tf_to[2]
+                replica = self._getReplica()
+                # Do not demote Consumer
+                if tf_from[2] != demote_role:
+                    replica.demote(demote_role)
+                if to_weight == 0:
+                    replica.delete()
+                if (tf_from[1] != tf_to[1]):
+                    # Should also delete the changelog entry
+                    changelog = self._getChangelog()
+                    changelog.delete()
+            if from_weight < to_weight:
+                # Should create or promote
+                rid = getattr(self, "ReplicaId", None)
+                binddn = getattr(self, "ReplicaBindDN", None)
+                if (tf_from[1] != tf_to[1]):
+                    # Should also create the changelog entry
+                    changelog = self._getChangelog()
+                    changelog.create()
+                if from_weight == 0:
+                    replica.create(suffix=self.suffix, role=tf_to[2], rid=rid)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
+        if _is_none_ignored(self, action):
+            action.vto = "present"
         if action2perform == OptionAction.DESC:
             if action.vto == "present":
                 return f"Creating backend {action.target.name} on suffix {action.target.suffix}"
@@ -624,6 +945,12 @@ class YAMLInstance(MyYAMLObject):
         'dseMods' : "List of change that needs to be applied on dse.ldif after the instance creation",
     }
     CHILDREN = { 'backends' : YAMLBackend }
+    # getDirSrv parameter
+    DIRSRV_NOLDAPI = 1    # Used to check directory manager password
+    DIRSRV_LDAPI = 2      # Used for connectionless operation (i.e: start/stop)
+    DIRSRV_OPEN = 3       # Used to perform ldap operations
+    DIRSRV_MODES = ( DIRSRV_NOLDAPI, DIRSRV_LDAPI, DIRSRV_OPEN )
+
 
     DEVWARN = ". Only set this parameter in a development environment"
     DEVNRWARN = f"{DEVWARN} or if using non root installation"
@@ -635,7 +962,7 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('data_dir', None, None, None, f"Sets the location of Directory Server shared static data{DEVWARN}" ),
         ConfigOption('db_dir', 'nsslapd-directory', LDBM_CONFIG_DB, None, "Sets the database directory of the instance" ),
         ConfigOption('db_home_dir', 'nsslapd-db-home-directory', 'cn=bdb,cn=config,cn=ldbm database,cn=plugins,cn=config', None, "Sets the memory-mapped database files location of the instance" ),
-        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None, "Select the database implementation library (bdb or mdb)" ),
+        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None, "Select the database implementation library", choice=("bdb", "mdb")),
         ConfigOption('full_machine_name', 'nsslapd-localhost', 'cn=config', None, 'The fully qualified hostname (FQDN) of this system. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to the FQDN of the load balancer and, additionally, set "strict_host_checking" to "false"' ),
         ConfigOption('group', 'nsslapd-group', 'cn=config', None, "Sets the group name the ns-slapd process will use after the service started" ),
         ConfigOption('initconfig_dir', None, None, None, f"Sets the directory of the operating system's rc configuration directory{DEVWARN}" ),
@@ -646,17 +973,17 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('lib_dir', None, None, None, f"Sets the location of Directory Server shared libraries{DEVWARN}" ),
         ConfigOption('local_state_dir', None, None, None, f"Sets the location of Directory Server variable data{DEVWARN}" ),
         ConfigOption('lock_dir', 'nsslapd-lockdir', 'cn=config', None, "Directory containing the lock files" ),
-        ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections" ),
-        ConfigOption('prefix', None, None, None, "Sets the file system prefix for all other directories. Should be the same as the $PREFIX environment variable when using dsconf/dsctl/dscreate" ),
+        ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections", type="int"),
         ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None, "Sets the Distinquished Name (DN) of the administrator account for this instance. " +
             "It is recommended that you do not change this value from the default 'cn=Directory Manager'" ),
-        ConfigOption('root_password', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
+        ConfigOption('rootpw', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
             'You can either set this parameter to a plain text password dscreate hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility. ' +
-            'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file' ),
+            'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file',
+            isIgnoredCb=_is_password_ignored, hidden=True, configName="root_password"),
         ConfigOption('run_dir', 'nsslapd-rundir', 'cn=config', None, "Directory containing the pid file" ),
         ConfigOption('sbin_dir', None, None, None, f"Sets the location where the Directory Server administration binaries are stored{DEVWARN}" ),
         ConfigOption('schema_dir', 'nsslapd-schemadir', 'cn=config', None, "Directory containing the schema files" ),
-        ConfigOption('secure_port', 'nsslapd-secureport', 'cn=config', None, "Sets the TCP port the instance uses for TLS-secured LDAP connections (LDAPS)" ),
+        ConfigOption('secure_port', 'nsslapd-secureport', 'cn=config', None, "Sets the TCP port the instance uses for TLS-secured LDAP connections (LDAPS)" ,type="int"),
         ConfigOption('self_sign_cert', None, None, None, "Sets whether the setup creates a self-signed certificate and enables TLS encryption during the installation. " +
             "The certificate is not suitable for production, but it enables administrators to use TLS right after the installation. " +
             "You can replace the self-signed certificate with a certificate issued by a Certificate Authority. If set to False, " +
@@ -664,31 +991,30 @@ class YAMLInstance(MyYAMLObject):
         ConfigOption('self_sign_cert_valid_months', None, None, None, "Set the number of months the issued self-signed certificate will be valid." ),
         ConfigOption('selinux', None, None, None, "Enables SELinux detection and integration during the installation of this instance. " +
             'If set to "True", dscreate auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment ' +
-            'or if using a non root installation' ),
-        SpecialOption('state', 2, "Indicate whether the instance is (or should be) present or absent" ),
-        SpecialOption('started', 99, "Indicate whether the instance is (or should be) started" ),
+            'or if using a non root installation', type="bool"),
+        SpecialOption('started', 99, "Indicate whether the instance is (or should be) started", vdef=True, type="bool"),
         ConfigOption('strict_host_checking', None, None, None, 'Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. ' +
-            'When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false"' ),
-        ConfigOption('sysconf_dir', None, None, None, "Desc" ),
-        ConfigOption('systemd', None, None, None, f'Enables systemd platform features. If set to "True", dscreate auto-detects whether systemd is installed{DEVNRWARN}'  ),
+            'When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false"', type="bool"),
+        ConfigOption('sysconf_dir', None, None, None, "sysconf directoryc" ),
+        ConfigOption('systemd', None, None, None, f'Enables systemd platform features. If set to "True", dscreate auto-detects whether systemd is installed{DEVNRWARN}', type="bool"),
         ConfigOption('tmp_dir', 'nsslapd-tmpdir', 'cn=config', None, "Sets the temporary directory of the instance" ),
         ConfigOption('user', 'nsslapd-localuser', 'cn=config', None, "Sets the user name the ns-slapd process will use after the service started" ),
 
-        DSEOption('nsslapd-lookthroughlimit', LDBM_CONFIG_DB, '5000', "The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED"),
-        DSEOption('nsslapd-mode', LDBM_CONFIG_DB, '600', "The database permission (mode) in octal"),
-        DSEOption('nsslapd-idlistscanlimit', LDBM_CONFIG_DB, '4000', "The maximum number of entries a given index key may refer before the index is handled as unindexed."),
-        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory"),
-        DSEOption('nsslapd-import-cachesize', LDBM_CONFIG_DB, '16777216', "Size of database cache when doing an import"),
+        DSEOption('nsslapd-lookthroughlimit', LDBM_CONFIG_DB, '5000', "The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED", type="int"),
+        DSEOption('nsslapd-mode', LDBM_CONFIG_DB, '600', "The database permission (mode) in octal", type="int"),
+        DSEOption('nsslapd-idlistscanlimit', LDBM_CONFIG_DB, '4000', "The maximum number of entries a given index key may refer before the index is handled as unindexed.", type="int"),
+        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory", isIgnoredCb=_is_none_ignored),
+        DSEOption('nsslapd-import-cachesize', LDBM_CONFIG_DB, '16777216', "Size of database cache when doing an import", type="int"),
         DSEOption('nsslapd-search-bypass-filter-test', LDBM_CONFIG_DB, 'on', "Allowed values are: 'on', 'off' or 'verify'. " +
             "If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. " +
-            "If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries" ),
-        DSEOption('nsslapd-search-use-vlv-index', LDBM_CONFIG_DB, 'on', "enables and disables virtual list view (VLV) searches"),
-        DSEOption('nsslapd-exclude-from-export', LDBM_CONFIG_DB, 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn', "Desc"),
-        DSEOption('nsslapd-pagedlookthroughlimit', LDBM_CONFIG_DB, '0', "lookthroughlimit when performing a paged search"),
-        DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search"),
-        DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager"),
-        DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance"),
-
+            "If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries", choice=("on","off","verify")),
+        DSEOption('nsslapd-search-use-vlv-index', LDBM_CONFIG_DB, 'on', "enables and disables virtual list view (VLV) searches", choice=("on","off")),
+        DSEOption('nsslapd-exclude-from-export', LDBM_CONFIG_DB, 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn', "list of attributes that are not exported"),
+        DSEOption('nsslapd-pagedlookthroughlimit', LDBM_CONFIG_DB, '0', "lookthroughlimit when performing a paged search", type="int"),
+        DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search", type="int"),
+        DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager", type="int"),
+        DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance", type="int"),
+        SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
     DSE_PATH='{prefix}/etc/dirsrv/slapd-{instname}/dse.ldif'
@@ -701,7 +1027,11 @@ class YAMLInstance(MyYAMLObject):
         self.dseMods = None
         self.state = "absent"
         self._dse = None
-        self._DirSrv = None
+        self._DirSrv = { }
+        for m in YAMLInstance.DIRSRV_MODES:
+            self._DirSrv[m] = None
+        self._initial_state = "unknown"
+        self._mustCreate = False
 
     def MyPathNames(self):
         return { 'instname' : self.name }
@@ -728,56 +1058,83 @@ class YAMLInstance(MyYAMLObject):
                 newResult.cloneDN(result.result, dn)
 
         for option in self.OPTIONS:
-            if not isinstance(option, DSEOption):
-                continue
-            action, val = newResult.getSingleValuedValue(option.dsedn, option.dsename)
-            if not action:
-                continue
-            if (action != DiffResult.DELETEVALUE):
-                self.setOption(option.name, val)
-            else:
-                self.setOption(option.name, None)
-            if (action != DiffResult.ADDENTRY):
-                newResult.result[option.dsedn][action].pop(option.dsename, None)
+            if option.dsedn:
+                dsedn = self.getPath(option.dsedn)
+                action, val = newResult.getSingleValuedValue(dsedn, option.dsename)
+                if action:
+                    if (action != DiffResult.DELETEVALUE):
+                        self.setOption(option.name, val)
+                    else:
+                        self.setOption(option.name, None)
+                    if (action != DiffResult.ADDENTRY):
+                        newResult.result[dsedn][action].pop(option.dsename, None)
         return newResult
 
-    def getDirSrv(self):
-        dirSrv = getattr(self, "_DirSrv", None)
-        if dirSrv:
+    def _getInstanceStatus(self, dirSrv="get it"):
+        if not self.exists():
+            return "absent"
+        if dirSrv == "get it":
+            dirSrv = self.getDirSrv(mode = YAMLInstance.DIRSRV_LDAPI)
+        if dirSrv is None:
+            return "unknown"
+        if not dirSrv.exists():
+            return "absent"
+        if dirSrv.status():
+            return "started"
+        return "stopped"
+
+    def getDirSrv(self, mode = DIRSRV_OPEN):
+        assert mode in YAMLInstance.DIRSRV_MODES
+        dirSrv = None
+        if self.exists():
+            dirSrv = self._DirSrv[mode]
+            if dirSrv:
+                return dirSrv
+            dirSrv = DirSrv()
+            dirSrv.local_simple_allocate(serverid=self.name)
+            self._DirSrv[mode] = dirSrv
+        status = self._getInstanceStatus(dirSrv)
+        if self._initial_state == "unknown":
+            self._initial_state = status
+        if status == "absent":
             return dirSrv
-        dirSrv = DirSrv()
-        dirSrv.local_simple_allocate(serverid=self.name)
-        dirSrv.setup_ldapi()
-        if  dirSrv.exists() and not dirSrv.status():
-            dirSrv.start()
-        setattr(self, "_DirSrv", dirSrv)
+        if mode == YAMLInstance.DIRSRV_NOLDAPI:
+            if status == "stopped":
+                dirSrv.start()
+        elif mode == YAMLInstance.DIRSRV_LDAPI:
+            dirSrv.setup_ldapi()
+        elif mode == YAMLInstance.DIRSRV_OPEN:
+            dirSrv.setup_ldapi()
+            if status == "stopped":
+                dirSrv.start()
+            dirSrv.open()
         return dirSrv;
 
-    def getDSE(self):
+    def exists(self):
         dsePath = self.getPath(self.DSE_PATH)
-        if not os.access(dsePath, os.R_OK):
+        return os.access(dsePath, os.R_OK)
+
+    def getDSE(self):
+        if self.exists():
+            self._dse = DSE(self.getPath(self.DSE_PATH))
+        else:
             self._dse = None
-        elif not self._dse:
-            self._dse = DSE(dsePath)
         return self._dse
 
     def getFacts(self):
-        dse = self.getDSE()
-        if not dse:
-            self.state = 'absent'
-            self.started = False
+        state = self._getInstanceStatus()
+        if state == 'absent':
             return
-
-        self.state = 'present'
-        inst = self.getDirSrv()
-        self.started = inst.status()
+        log.debug(f'YAMLInstance.getFacts(instance: {self.name} state:{state}')
+        dse = self.getDSE()
+        assert dse
 
         actions = self.getAllActions(self)
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Instance {self.name} option:{action.option.name} val:{val}")
-            if val and val != vdef:
+            log.debug(f"YAMLInstance.getFacts {self.name} option:{action.option.name} val:{val}")
+            if val and (val != vdef or action.option.name == 'state'):
                 setattr(self, action.option.name, val)
 
         if 'nsbackendinstance' in dse.class2dn:
@@ -796,6 +1153,7 @@ class YAMLInstance(MyYAMLObject):
         self.setOption('dseMods', result.toYaml())
 
     def create(self):
+        log.debug(f"YAMLInstance.create {self.name}")
         config = self._infConfig
         config['general'] = { 'version' : 2, 'start' : 'True' }
         config['slapd'] = { 'instance_name' : self.name }
@@ -809,21 +1167,14 @@ class YAMLInstance(MyYAMLObject):
 
         actions = self.getAllActions(self)
         for action in actions:
-            if isinstance(action.option, ConfigOption):
+            if action.option.configtag:
                 action.perform(OptionAction.CONFIG)
         s = SetupDs(log=log)
         general, slapd, backends = s._validate_ds_config(config)
         s.create_from_args(general, slapd, backends)
-        inst = DirSrv()
-        inst.local_simple_allocate(serverid=self.name)
-        inst.setup_ldapi()
-        self._DirSrv = inst
-        if not self.started:
-            inst.stop()
-        return inst
 
     def delete(self):
-        dirsrv = self.getDirSrv()
+        dirsrv = self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
         dirsrv.stop
         dirsrv.delete()
         self._isDeleted = True
@@ -849,7 +1200,8 @@ class YAMLInstance(MyYAMLObject):
             dummyInstance.port, dummyInstance.secure_port = self.get2ports()
             dummyInstance.secure = 'on'
             dummyInstance.self_sign_cert = True
-            dummydirSrv = dummyInstance.create()
+            dummyInstance.create()
+            dummydirSrv =  dummyInstance.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
             dsePath = dummyInstance.getPath(self.DSE_PATH)
 
             ### Preserve the dumy instance dse.ldif
@@ -869,17 +1221,17 @@ class YAMLInstance(MyYAMLObject):
             return defaultDSE
 
     def _stateAction(self=None, action=None, action2perform=None):
+        log.debug(f'YAMLInstance._stateAction inst={self.name} action2perform={action2perform} action={action}')
         option = action.option
+        if _is_none_ignored(self, action):
+            action.vto = "present"
         if action2perform == OptionAction.DESC:
-            if action.vto == "present":
+            if self._mustCreate:
                 return f"Creating instance slapd-{action.target.name}"
-            else:
-                return f"Deleting instance slapd-{action.target.name}"
         elif action2perform == OptionAction.DEFAULT:
             return "present"
         elif action2perform == OptionAction.FACT:
-            dsePath = self.getPath(action.target.DSE_PATH)
-            if os.access(dsePath, os.R_OK):
+            if self.exists():
                 return 'present'
             else:
                 return 'absent'
@@ -887,24 +1239,26 @@ class YAMLInstance(MyYAMLObject):
             pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            if action.vto == "present":
+            if self._mustCreate:
                 action.target.create()
+                # Reset DirSrv cache
+                for key in self._DirSrv.keys():
+                    self._DirSrv[key] = None
                 action.facts.getFacts()
-            else:
-                action.target.delete()
-                action.facts._parent.instances.remove(action.facts)
 
     def _startedAction(self=None, action=None, action2perform=None):
         option = action.option
         if action2perform == OptionAction.DESC:
             if isTrue(action.vto):
-                return f"Starting instance slapd-{action.target.name}"
+                if self._initial_state != "started":
+                    return f"Starting instance slapd-{action.target.name}"
             else:
-                return f"Stopping instance slapd-{action.target.name}"
+                if self._initial_state != "stopped":
+                    return f"Stopping instance slapd-{action.target.name}"
         elif action2perform == OptionAction.DEFAULT:
             return True
         elif action2perform == OptionAction.FACT:
-            return action.target.getDirSrv().status()
+            return action.target.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).status()
         elif action2perform == OptionAction.CONFIG:
             pass
         elif action2perform == OptionAction.UPDATE:
@@ -915,61 +1269,130 @@ class YAMLInstance(MyYAMLObject):
             # stop the server if needed at the end or the instance update
 
     def update(self, facts=None, summary=[], onlycheck=False, args=None):
+        curstate = self._getInstanceStatus()
+        if self.state == "absent":
+            if curstate != "absent":
+				# Lets delete the instance
+                summary.extend((f'Removing instance {self.name}',))
+                if onlycheck:
+                    return
+                inst = self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
+                inst.delete()
+                if facts:
+                    getattr(facts, 'instances').pop(self.name, None)
+            return
+        elif isTrue(self.started):
+            wantedstate = "started"
+        else:
+            wantedstate = "stopped"
+        if curstate == "absent":
+            self._mustCreate = True
+
+        # Lets create the instance (if needed) then update the config
         super().update(facts, summary, onlycheck, args)
-        if not isTrue(getattr(self, "started", "True")):
-            summary.append((f"Stopping instance {self.getDirSrv().serverid}",))
-            self.getDirSrv().stop()
+        # Lets insure that started state is the wanted one.
+        if wantedstate == "started":
+            self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).start()
+        else:
+            self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).stop()
+
+    def isAttrUpToDate(self, entry, attr, vals):
+        if not entry:
+            return True
+        e = Entry(entry.getDN(), { attr: vals})
+        return entry.hasSameAttributes(e, (attr,))
 
 
-    def applyMods(self, dict):
+    def filterOps(self, dirSrv, mods, overwrite):
+        ops=[]
+        log.debug(f'YAMLInstance.filterOps mods={type(mods)}: {mods}')
+        for dn, actionDict in mods.items():
+            entry = Entry.fromDS(dirSrv, dn)
+            for action in actionDict.keys():
+                if action == DiffResult.ADDENTRY:
+                    if entry:
+                        # Replace existing attributes if they are not already set with the right value
+                        for attr, vals in actionDict[action].items():
+                            if not self.isAttrUpToDate(entry, attr, vals):
+                                op = LdapOp(LdapOp.REPLACE, dn)
+                                op.add_values(attr, vals)
+                                ops.append((op,))
+                                entry.attrs.pop(attr, None)
+                        if overwrite:
+                            # Lets remove the attributes that are not expected.
+                            for attr in entry.attrs.keys():
+                                op = LdapOp(LdapOp.DEL_VALUES,dn)
+                                op.add_values(attr, None)
+                                ops.append((op,))
+                    else:
+                        # Add the entry
+                        op = LdapOp(LdapOp.ADD_ENTRY, dn)
+                        for attr, vals in actionDict[action].items():
+                            op.add_values(attr, vals)
+                        ops.append((op,))
+                elif action == DiffResult.DELETEENTRY:
+                    if entry:
+                        op = LdapOp(LdapOp.DEL_ENTRY, dn)
+                        ops.append((op,))
+                elif action == DiffResult.ADDVALUE:
+                    if entry:
+                        v = []
+                        for val in vals:
+                            if not entry.hasValue(attr, val):
+                                v.append((val,))
+                        if len(v) > 0:
+                            op = LdapOp(LdapOp.ADD_VALUE, dn)
+                            op.add_values(attr, v)
+                            ops.append((op,))
+                elif action == DiffResult.DELETEVALUE:
+                    if entry:
+                        v = []
+                        for val in vals:
+                            if entry.hasValue(attr, val):
+                                v.append((val,))
+                        if len(v) > 0:
+                            op = LdapOp(LdapOp.DEL_VALUE, dn)
+                            op.add_values(attr, v)
+                            ops.append((op,))
+                elif action == DiffResult.REPLACEVALUE:
+                    if entry:
+                        for attr, vals in actionDict[action].items():
+                            if not self.isAttrUpToDate(entry, attr, vals):
+                                op = LdapOp(LdapOp.REPLACE, dn)
+                                op.add_values(attr, vals)
+                                ops.append((op,))
+        return ops
+
+    def applyMods(self, mods, summary, onlycheck):
+        if not mods:
+            return
         dirSrv = self.getDirSrv()
-        if not dirSrv.can_autobind():
-            dirSrv.setup_ldapi()
-        started = dirSrv.status()
-        if not started:
-            dirSrv.start()
+        dirSrv.close()
         dirSrv.open()
-        for dn, actionDict in dict.items():
-            modList = []
-            for action in actionDict:
-                for attr, vals in actionDict[action].items():
-                    if action == DiffResult.ADDENTRY:
-                        # try to add the entry
-                        assert len(actionDict) == 1
-                        log.info(f"YAMLInstance.applyMods: add({dn}, {modList})")
-                        try:
-                            add_s(dirSrv, dn, modList)
-                        except ldap.ALREADY_EXISTS:
-                            log.info(f"YAMLInstance.applyMods: add returned ldap.ALREADY_EXISTS")
-                    elif DiffResult.DELETEENTRY in actionDict:
-                        assert len(actionDict) == 1
-                        log.info(f"YAMLInstance.applyMods: delete({dn})")
-                        delete_s(dirSrv, dn)
-                    elif action == DiffResult.ADDVALUE:
-                        modList.append( (ldap.MOD_ADD, attr, ensure_list_bytes(vals)) )
-                    elif action == DiffResult.DELETEVALUE:
-                        if vals == [ None ] or vals is None:
-                            modList.append( (ldap.MOD_DELETE, attr, None ) )
-                        else:
-                            modList.append( (ldap.MOD_DELETE, attr, ensure_list_bytes(vals)) )
-                    elif action == DiffResult.REPLACEVALUE:
-                        if vals == [ None ] or vals is None:
-                            modList.append( (ldap.MOD_REPLACE, attr, None) )
-                        else:
-                            modList.append( (ldap.MOD_REPLACE, attr, ensure_list_bytes(vals)) )
+        modsPerformed = []
+        if self._getInstanceStatus(dirSrv) != "absent":
+            ops = self.filterOps(dirSrv, mods, (self.state=="overwrite"))
+            if not onlycheck:
+                try:
+                    LdapOp.apply_list_op(ops, dirSrv)
+                except ldap.UNWILLING_TO_PERFORM:
+                    self.applyOpsOffLine(dirSrv, mods, modsPerformed, onlycheck)
+                if self.started is False:
+                    dirSrv.stop()
+                else:
+                    dirSrv.start()
+            for op in ops:
+                summary.extend((str(op),))
 
-            if len(modList) > 0:
-                log.info(f"YAMLInstance.applyMods: modify({dn}, {modList})")
-                modify_s(dirSrv, dn, modList)
-        if not started:
-            dirSrv.stop()
-        # Config changed so reload the dse.ldif next time we need it
-        setattr(self, "_dse", None)
-
+    def applyOpsOffLine(self, dirSrv, dict, modsPerformed, onlycheck):
+        dirSrv.stop()
+        raise NotImplementedError("Code not yet implemented.")
 
 class YAMLRoot(MyYAMLObject):
     OPTIONS = (
         SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
+        SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed", vdef="present", choice= ("present", "updated", "absent")),
+
     )
     CHILDREN = { 'instances': YAMLInstance }
 
@@ -1002,6 +1425,14 @@ class YAMLRoot(MyYAMLObject):
         super().__init__(name)
         self.prefix = self.getPath('{prefix}')
 
+    def tolist(self):
+        d = super().tolist()
+        res = {}
+        for key,val in { 'instances': 'dsserver_instances', 'prefix': 'dsserver_prefix', 'state': 'state' }.items():
+            if key in d:
+                res[val] = d[key]
+        return res
+
     def MyPathNames(self):
         return { 'hostname' : self.name, 'prefix' : os.environ.get('PREFIX', "") }
 
@@ -1031,3 +1462,26 @@ class YAMLRoot(MyYAMLObject):
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
             os.environ.set('PREFIX', action.vto)
+
+    def _stateAction(self=None, action=None, action2perform=None):
+        instances = get_instance_list()
+        log.debug(f"YAMLRoot._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
+        if action2perform == OptionAction.DESC:
+            if action.vto == "absent" and len(instances) > 0:
+                return "Removing all instances"
+        elif action2perform == OptionAction.DEFAULT:
+            return "present"
+        elif action2perform == OptionAction.FACT:
+            if len(instances)>0:
+                return "present"
+            else:
+                return "absent"
+        elif action2perform == OptionAction.CONFIG:
+            pass
+        elif action2perform == OptionAction.UPDATE:
+            setattr(action.facts, option.name, action.vto)
+            if action.vto == "absent":
+                for inst in instances:
+                    dirSrv = DirSrv()
+                    dirSrv.local_simple_allocate(serverid=inst)
+                    dirSrv.remove()

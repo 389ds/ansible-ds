@@ -52,7 +52,7 @@ original_message:
     description: The original name param that was passed in.
     type: str
     returned: always
-    sample: 'hello world'
+    sample: { prefix: '' }
 message:
     description: The output message that the test module generates.
     type: str
@@ -63,8 +63,97 @@ my_useful_info:
     type: dict
     returned: always
     sample: {
-        'foo': 'bar',
-        'answer': 42,
+        "instances": [
+            {
+                "backends": [
+                    {
+                        "indexes": [],
+                         "name": "userroot",
+                         "require_index": "off",
+                         "state": "present",
+                         "suffix": "dc=example,dc=com"
+                    }
+                ],
+                "dseMods": {
+                    "cn=config": {
+                        "deleteValue": {
+                            "nsslapd-security": [null]
+                        }
+                    },
+                    "cn=encryption,cn=config": {
+                        "deleteValue": {
+                            "CACertExtractFile": [null]
+                        }
+                    },
+                    "cn=rfc 2829 u syntax,cn=mapping,cn=sasl,cn=config": {
+                        "addEntry": {
+                            "cn": ["rfc 2829 u syntax"],
+                             "nsSaslMapBaseDNTemplate": ["dc=example,dc=com"],
+                             "nsSaslMapFilterTemplate": ["(uid=\\1)"],
+                             "nsSaslMapRegexString": ["^u:\\(.*\\)"],
+                             "objectClass": ["top", "nsSaslMapping"]
+                        }
+                    },
+                    "cn=uid mapping,cn=mapping,cn=sasl,cn=config": {
+                        "addEntry": {
+                            "cn": ["uid mapping"],
+                             "nsSaslMapBaseDNTemplate": ["dc=example, dc=com"],
+                             "nsSaslMapFilterTemplate": ["(uid=&)"],
+                             "nsSaslMapRegexString": ["^[^:@]+$"],
+                             "objectClass": ["top", "nsSaslMapping"]
+                        }
+                    }
+                },
+                "name": "supplier2",
+                "nsslapd_directory": "/home/progier/sb/ai1/tst/ci-install/var/lib/dirsrv/slapd-supplier2/db",
+                "port": "39002",
+                "rootpw": "{PBKDF2_SHA256}AAAIAN7jyfft/iLipUqljm5SwJToec7jPhwiUlEZbQXLl7A7SrVKJwBgklnwUjj2C7ET56AIXp4Q4WYjq9CCmUKQjD/SefhsrX//u+Z15JS9/EKmQX9zP0w404CJ1Vk0d5oE/TKCSVqu0nQOCHm8EaBWqpMMdSVgaOdkv0YMAXBD/LQleTmzxMO9M0I2Utu4Pl5tRk3OgED/uREhCK7MPfhbz6KowezbIH3M7u3lR/xMAKuYcJ29kJ67lb0OCN/GM2QYy3ISorDA6ZkmwlFpodVhBQhPkNob7dY3FPBQkBvsMoktB8seDeXCcBmyDLYFKmS9/sSyWPJNxupeCeLvCyt1J1TK9L6T9ZMqOIPFyYDbOxvaQqgeIXXYtpwGSGZzdUwMZktrtzRN5lGVaRZJobzo1HHxi9ODRD0VedrOBaFDS+tt",
+                "secure_port": "63702",
+                "started": true,
+                "state": "present"
+            },
+            {
+                "backends": [
+                    {
+                        "indexes": [],
+                        "name": "userroot",
+                        "require_index": "off",
+                        "state": "present",
+                        "suffix": "dc=example, dc=com"
+                    }
+                ],
+                "dseMods": {
+                    "cn=rfc 2829 u syntax, cn=mapping, cn=sasl, cn=config": {
+                        "addEntry": {
+                            "cn": ["rfc 2829 u syntax"],
+                            "nsSaslMapBaseDNTemplate": ["dc=example, dc=com"],
+                            "nsSaslMapFilterTemplate": ["(uid=\\1)"],
+                            "nsSaslMapRegexString": ["^u:\\(.*\\)"],
+                            "objectClass": ["top", "nsSaslMapping"]
+                       }
+                    },
+                    "cn=uid mapping, cn=mapping, cn=sasl, cn=config": {
+                        "addEntry": {
+                            "cn": ["uid mapping"],
+                             "nsSaslMapBaseDNTemplate": ["dc=example, dc=com"],
+                             "nsSaslMapFilterTemplate": ["(uid=&)"],
+                             "nsSaslMapRegexString": ["^[^:@]+$"],
+                             "objectClass": ["top",
+                             "nsSaslMapping"]
+                        }
+                    }
+                },
+                "name": "supplier1",
+                "nsslapd_directory": "/home/progier/sb/ai1/tst/ci-install/var/lib/dirsrv/slapd-supplier1/db",
+                "port": "39001",
+                "rootpw": "{PBKDF2_SHA256}AAAIAJ5WJx3IMBrONf8U7ZK3bTgZYL45O5v0dLK48UIioPoksFKLPBj7yFwgYNA94Im0KFe8SNOfkixIFsU4xA6yvdiRwNV5zio0aJzVfRNQulUVHFruGRaXPI8yQOAFShJXw0qjUwXpqMueJZmUECBtAJtt0cSRPmPN5TTjlM0Kz1rJXkoOTwB0kU8DiI0w0TE1a9fHCQ1hbItdGe5tT+TnGoUfD3YfQq/2qZV4W+rTNZpHx0BDqdka9pgjeUf0EzcPpfntTyhyUNm86luU8cp56zdeeTNFw+QejIgdQviVk48bmPZGhOAX5hSAcsfFStEii8DqyYaQvpDqko9QyT9F2Tb3vyGx3HOeoX12DQRwJy7gmkWCSrRJpZd3zl3A4IruqjLVpi16SoJvKno2vxtjtKF5QS2nfbOKPag9Ycyg3gka",
+                "secure_port": "63701",
+                "started": true,
+                "state": "present"
+            }
+        ],
+        "prefix": "",
+        "state": "present"
     }
 '''
 
@@ -143,7 +232,7 @@ def run_module():
         return
     result['message'] = 'goodbye'
     result['my_useful_info'] = {
-        **toAnsibleResult(dsroot.todict())
+        **toAnsibleResult(dsroot.tolist())
     }
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results

@@ -5,7 +5,7 @@
     - name: load encrypted variables
       include_vars: "vault.yml"
 
-- name: Run ds.ansible_ds.dscreate.yml
+- name: Creates instances i1 and i2
   import_playbook: ansible_collections/ds/ansible_ds/playbooks/dscreate.yml
   vars:
     #dsserver_rootpw: is imported from vault.yml
@@ -40,3 +40,34 @@
                 -
                     name: "peoplesubsuffix"
                     suffix: "o=people,dc=example,dc=com"
+
+- name: Run ds.ansible_ds.dsremove.yml
+  import_playbook: ansible_collections/ds/ansible_ds/playbooks/dsremove.yml
+  vars:
+    dsserver_instances:
+            -
+                name: i1
+                state: absent
+
+- name: Get dsserver facts
+  import_playbook: ansible_collections/ds/ansible_ds/playbooks/gather_dsinst_info.yml
+
+- name: Check result
+  hosts: localhost
+  tasks:
+    - ansible.builtin.debug:
+        msg: play2
+
+    - ansible.builtin.assert:
+        that:
+          - "{{ 'i1' not in dsserver_instances|map(attribute='name')|list }}"
+        fail_msg: "instance i1 still exists."
+        success_msg: "instance i1 does no more exist."
+
+
+    - ansible.builtin.assert:
+        that:
+          - "{{ 'i2' in dsserver_instances|map(attribute='name')|list }}"
+        fail_msg: "instance i2 does no more exist."
+        success_msg: "instance i2 still exists."
+

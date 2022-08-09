@@ -1,0 +1,26 @@
+---
+- name: Playbook to remove a DS instance
+  hosts: localhost
+
+  vars:
+    # In a real deployment, variables should be customized
+    # In this playbook all the variables are commented out because
+    # they are provided by the calling test playbook
+
+    # Optionnal variables:
+    # Description format is:  # variableName (default value) : description
+    # dsserver_instances (empty list) : list of dict with instance name and state 'absent'
+
+    # Example:
+    # dsserver_instances:
+    #    -
+    #        name: i1
+    #        state: absent
+    # dsserver_prefix: ''
+
+  collections:
+    - ds.ansible_ds
+
+  roles:
+    - role: dsserver
+      state: present
