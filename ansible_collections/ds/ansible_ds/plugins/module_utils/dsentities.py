@@ -18,16 +18,16 @@ version_added: "1.0.0"
 
 description:
     - NormalizedDict class:   a dict whose keys are normalized
-    - Option class:           class handling ansible-ds parameters for each YAMLObject
+    - Option class:           class handling ansible-ds parameters for each ConfigObject
     - DSEOption class:        class handling the Option associated with ds389 parameters that are in dse.ldif
     - ConfigOption class:     class handling the Option associated with ds389 parameters that are in dscreate template file
     - SpecialOption class:    class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
     - OptionAction class:     utility class used to perform action on an Option
-    - MyYAMLObject class:     the generic class for ds389 entities
-    - YAMLRoot class:         the MyYAMLObject class associated with the root entity: (local host)
-    - YAMLInstance class:     the MyYAMLObject class associated with a ds389 instance
-    - YAMLBackend class:      the MyYAMLObject class associated with a backend
-    - YAMLIndex class:        the MyYAMLObject class associated with an index
+    - MyConfigObject class:     the generic class for ds389 entities
+    - ConfigRoot class:         the MyConfigObject class associated with the root entity: (local host)
+    - ConfigInstance class:     the MyConfigObject class associated with a ds389 instance
+    - ConfigBackend class:      the MyConfigObject class associated with a backend
+    - ConfigIndex class:        the MyConfigObject class associated with an index
 
 author:
     - Pierre Rogier (@progier389)
@@ -87,7 +87,7 @@ def _is_password_ignored(inst, action):
         # ==> let assume that the password changed.
         #log.info('Exiting _is_password_ignored returning False because password seems already hashed')
         return False
-    dirsrv = inst.getDirSrv(mode=YAMLInstance.DIRSRV_NOLDAPI)
+    dirsrv = inst.getDirSrv(mode=ConfigInstance.DIRSRV_NOLDAPI)
     if dirsrv is None:
         # We are creating a new instance and we need the password.
         #log.info('Exiting _is_password_ignored returning False because instance does not exists.')
@@ -130,7 +130,7 @@ def _is_none_ignored(inst, action):
     return action.vto is None or action.vto == 'None'
 
 
-# class handling ansible-ds parameters for each YAML Object
+# class handling ansible-ds parameters for each Config Object
 class Option:
     def __init__(self, name, desc, prio=10, actionCbName=None, dseName=None, dseDN=None, configName=None,
             configTag=None, choice=None, hidden=False, isIgnoredCb=None, readonly=False, required=False, vdef=None, type="str"):
@@ -282,8 +282,7 @@ class OptionAction:
         return f'OptionAction(option={self.option.name}, prio={self.option.prio}, dsename={self.option.dsename}, target={self.target.name}, vfrom={self.vfrom}, vto={self.vto})'
 
 # class representong the enties like instance, backends, indexes, ...
-class MyYAMLObject(yaml.YAMLObject):
-    yaml_loader = yaml.SafeLoader
+class MyConfigObject():
     PARAMS = {
         'name' :  "Instance name",
     }
@@ -295,10 +294,10 @@ class MyYAMLObject(yaml.YAMLObject):
         # https://docs.ansible.com/ansible/latest/dev_guide/developing_program_flow_modules.html#argument-spec
     }
     CHILDREN = {
-        # A dict (variableNamner:, objectClassi) of variable that contains a list of MyYAMLObject
+        # A dict (variableNamner:, objectClassi) of variable that contains a list of MyConfigObject
     }
     HIDDEN_VARS =  (
-        # A list of pattern of variable that should not be dumped in YAML
+        # A list of pattern of variable that should not be dumped in Config
     )
 
     def __init__(self, name, parent=None):
@@ -313,7 +312,7 @@ class MyYAMLObject(yaml.YAMLObject):
         self.setCtx()
 
     def set(self, args):
-        log.debug(f"MyYAMLObject.set {self} {self.name} <-- {args}")
+        log.debug(f"MyConfigObject.set {self} {self.name} <-- {args}")
         ### Initialize the object from a raw dict
         if isinstance(args, str):
             args = json.loads(args)
@@ -425,20 +424,20 @@ class MyYAMLObject(yaml.YAMLObject):
     def parent(self):
         return getattr(self, "_parent", None)
 
-    def getYAMLInstance(self):
+    def getConfigInstance(self):
         yobject = self
-        while yobject is not None and yobject.getClass() != 'YAMLInstance':
+        while yobject is not None and yobject.getClass() != 'ConfigInstance':
             yobject = yobject.parent()
         return yobject
 
     def getDSE(self):
-        yobject = self.getYAMLInstance()
+        yobject = self.getConfigInstance()
         if yobject:
             return yobject.getDSE()
         return None
 
     def getDefaultDSE(self):
-        yobject = self.getYAMLInstance()
+        yobject = self.getConfigInstance()
         if yobject:
             return yobject.getDefaultDSE()
         return None
@@ -453,7 +452,7 @@ class MyYAMLObject(yaml.YAMLObject):
         return False
 
     def __getstate__(self):
-        # Lets hide the variable that we do not want to see in YAML dump
+        # Lets hide the variable that we do not want to see in Config dump
         state = self.__dict__.copy()
         for var in self.__dict__:
             if var.startswith('_'):
@@ -462,8 +461,8 @@ class MyYAMLObject(yaml.YAMLObject):
             state.pop(var, None)
         for var in self.CHILDREN.keys():
             list = self.__dict__[var]
-            # Needs to keep YAMLRoot instances even if it is empty
-            if len(list) == 0 and not isinstance(self, YAMLRoot):
+            # Needs to keep ConfigRoot instances even if it is empty
+            if len(list) == 0 and not isinstance(self, ConfigRoot):
                 state.pop(var, None)
         return state
 
@@ -477,7 +476,7 @@ class MyYAMLObject(yaml.YAMLObject):
         # Check that mandatory parameters exists and remove them from dictCopy
         for p in self.PARAMS:
             if not p in dict:
-                raise yaml.YAMLError(f"Missing Mandatory parameter {p} in {self.__class__.__name__} object {self}")
+                raise ValueError(f"Missing Mandatory parameter {p} in {self.__class__.__name__} object {self}")
             del dictCopy[p]
         # Remove internal parameters from dictCopy
         for o in dict.keys():
@@ -493,7 +492,7 @@ class MyYAMLObject(yaml.YAMLObject):
                 del dictCopy[key]
         # dictCopy should be empty, otherwise there are unexpected parameters
         if len(dictCopy) > 0:
-            raise yaml.YAMLError(f"Unexpected  parameters {dictCopy.keys()} in {self.getClass()} object {self}")
+            raise ValueError(f"Unexpected  parameters {dictCopy.keys()} in {self.getClass()} object {self}")
 
     def __repr__(self):
         #return f"{self.__class__.__name__}(variables={self.__dict__})"
@@ -518,7 +517,7 @@ class MyYAMLObject(yaml.YAMLObject):
         return facts
 
     def getType(self):
-        return self.getClass().replace("YAML","")
+        return self.getClass().replace("Config","")
 
     def getAllActions(self, facts):
         actions = []
@@ -532,13 +531,13 @@ class MyYAMLObject(yaml.YAMLObject):
 
     def update(self, facts=None, summary=[], onlycheck=False, args=None):
         if not facts:
-            facts = YAMLRoot()
+            facts = ConfigRoot()
             facts.getFacts()
         facts = self.findFact(facts)
 
         # Determine if the change should be logged in first phase
         # Note: if updating an already existing instance then messages are displayed by applyMods
-        inst = self.getYAMLInstance()
+        inst = self.getConfigInstance()
         display_msg = True
         if inst and not inst._mustCreate:
             display_msg = False
@@ -546,7 +545,7 @@ class MyYAMLObject(yaml.YAMLObject):
 
         actions = self.getAllActions(facts)
         for action in actions:
-            log.debug(f"MyYAMLObject.update: action={action}")
+            log.debug(f"MyConfigObject.update: action={action}")
             if self._isDeleted is True:
                 return
             if action.vfrom == action.vto:
@@ -577,7 +576,7 @@ class MyYAMLObject(yaml.YAMLObject):
         DiffResult.addModifier(dict, dn, type, attr, val)
 
 
-class YAMLIndex(MyYAMLObject):
+class ConfigIndex(MyConfigObject):
     IDXDN = 'cn={attr},cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config'
     OPTIONS = (
         ConfigOption('indextype', 'nsIndexType', IDXDN, None, "Determine the index types (pres,eq,sub,matchingRuleOid)", required=True ),
@@ -607,7 +606,7 @@ class YAMLIndex(MyYAMLObject):
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
         bename = self.getPath("{bename}")
-        log.debug(f"YAMLindex._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
+        log.debug(f"Configindex._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
@@ -619,7 +618,7 @@ class YAMLIndex(MyYAMLObject):
             return "present"
         elif action2perform == OptionAction.FACT:
             dse = action.target.getDSE()
-            if dse.getEntry(self.getPath(YAMLIndex.IDXDN)):
+            if dse.getEntry(self.getPath(ConfigIndex.IDXDN)):
                 return 'present'
             else:
                 return 'absent'
@@ -627,24 +626,24 @@ class YAMLIndex(MyYAMLObject):
             pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            inst = action.target.getYAMLInstance()
+            inst = action.target.getConfigInstance()
             baseDN = action.target.getPath('cn=index,cn={bename},cn=ldbm database,cn=plugins,cn=config')
             if action.vto == "present":
                 # In fact that is the rdn that Backend.create method needs.
                 dn = f'cn={action.target.name}'
                 actions = action.target.getAllActions(action.target)
                 for a in actions:
-                    if getattr(a.option, 'dsedn', None) == YAMLIndex.IDXDN and a.getValue():
+                    if getattr(a.option, 'dsedn', None) == ConfigIndex.IDXDN and a.getValue():
                         mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
                 idx = Index(inst.getDirSrv())
                 log.debug(f"Creating index dn:{dn},{baseDN} properties:{mods}")
                 idx.create(dn, mods, baseDN)
             else:
-                dn = action.target.getPath(YAMLIndex.IDXDN)
+                dn = action.target.getPath(ConfigIndex.IDXDN)
                 idx = Index(inst.getDirSrv(), dn=dn)
                 idx.delete()
 
-class YAMLAgmt(MyYAMLObject):
+class ConfigAgmt(MyConfigObject):
     OPTIONS = (
         SpecialOption('state', 2, "Indicate whether the replication agreement is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
 
@@ -695,7 +694,7 @@ class YAMLAgmt(MyYAMLObject):
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
         bename = self.getPath("{bename}")
-        log.debug(f"YAMLAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
+        log.debug(f"ConfigAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
@@ -715,7 +714,7 @@ class YAMLAgmt(MyYAMLObject):
             pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            inst = action.target.getYAMLInstance()
+            inst = action.target.getConfigInstance()
             baseDN = action.target._parent.getPath(ReplicaOption.DSEDN)
             if action.vto == "present":
                 # In fact that is the rdn that Backend.create method needs.
@@ -733,8 +732,8 @@ class YAMLAgmt(MyYAMLObject):
                 agmt.delete()
 
 
-class YAMLBackend(MyYAMLObject):
-    CHILDREN = { 'indexes': YAMLIndex, 'agmts': YAMLAgmt }
+class ConfigBackend(MyConfigObject):
+    CHILDREN = { 'indexes': ConfigIndex, 'agmts': ConfigAgmt }
     BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
     # Replication (type, flags, ReplicaRolem, promoteWeight) per roles
     REPL_ROLES = { None: ( "0", "0", ReplicaRole.STANDALONE, 0 ), "supplier": ( "3", "1", ReplicaRole.SUPPLIER, 3 ), "hub": ( "2", "1", ReplicaRole.HUB, 2 ), "consumer": ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
@@ -806,7 +805,7 @@ class YAMLBackend(MyYAMLObject):
             if m:
                 entry = dse.dn2entry[dn]
                 if self.is_default_index(m.group(1), entry) is False:
-                    index = YAMLIndex(m.group(1), parent=self)
+                    index = ConfigIndex(m.group(1), parent=self)
                     index._beentrydn = dn
                     self.indexes[index.name] = index
                     index.getFacts()
@@ -817,7 +816,7 @@ class YAMLBackend(MyYAMLObject):
                 if entry.getNDN().endswith(replicaDN):
                     m = re.match(f'cn=([^,]*),cn=replica,cn=.*,cn=mapping tree,cn=config', dn)
                     assert m
-                    agmt = YAMLAgmt(m.group(1), parent=self)
+                    agmt = ConfigAgmt(m.group(1), parent=self)
                     agmt._beentrydn = dn
                     self.agmts[agmt.name] = agmt
                     agmt.getFacts()
@@ -832,7 +831,7 @@ class YAMLBackend(MyYAMLObject):
             return None
         flags = rentry.getSingleValue('nsDS5Flags')
         type = rentry.getSingleValue('nsDS5ReplicaType')
-        for key, val in YAMLBackend.REPL_ROLES.items():
+        for key, val in ConfigBackend.REPL_ROLES.items():
             if (type, flags) == val[0:2]:
                 return key
         return None
@@ -866,8 +865,8 @@ class YAMLBackend(MyYAMLObject):
             pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            tf_from = YAMLBackend.REPL_ROLES[action.vfrom]
-            tf_to = YAMLBackend.REPL_ROLES[action.vto]
+            tf_from = ConfigBackend.REPL_ROLES[action.vfrom]
+            tf_to = ConfigBackend.REPL_ROLES[action.vto]
             from_weight = tf_from[3]
             to_weight = tf_to[3]
             if from_weight > to_weight:
@@ -910,7 +909,7 @@ class YAMLBackend(MyYAMLObject):
             return "present"
         elif action2perform == OptionAction.FACT:
             dse = action.target.getDSE()
-            if dse.getEntry(self.getPath(YAMLBackend.BEDN)):
+            if dse.getEntry(self.getPath(ConfigBackend.BEDN)):
                 return 'present'
             else:
                 return 'absent'
@@ -918,33 +917,33 @@ class YAMLBackend(MyYAMLObject):
             pass
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            inst = action.target.getYAMLInstance()
+            inst = action.target.getConfigInstance()
             if action.vto == "present":
                 # In fact that is the rdn that Backend.create method needs.
                 dn = f'cn={action.target.name}'
                 prop = {}
                 actions = action.target.getAllActions(action.target)
                 for a in actions:
-                    if getattr(a.option, 'dsedn', None) == YAMLBackend.BEDN and a.getValue():
+                    if getattr(a.option, 'dsedn', None) == ConfigBackend.BEDN and a.getValue():
                         prop[a.option.dsename] = ensure_bytes(a.getValue())
                 assert 'nsslapd-suffix' in prop
                 be = Backend(inst.getDirSrv())
                 log.debug(f"Creating backend dn:{dn} properties:{prop}")
                 be.create(dn, prop)
             else:
-                dn = action.target.getPath(YAMLBackend.BEDN)
-                be = Backend(action.target.getYAMLInstance().getDirSrv(), dn=dn)
+                dn = action.target.getPath(ConfigBackend.BEDN)
+                be = Backend(action.target.getConfigInstance().getDirSrv(), dn=dn)
                 be.delete()
 
 
-class YAMLInstance(MyYAMLObject):
+class ConfigInstance(MyConfigObject):
     LDBM_CONFIG_DB = 'cn=config,cn=ldbm database,cn=plugins,cn=config'
     PARAMS = {
-        ** MyYAMLObject.PARAMS,
+        ** MyConfigObject.PARAMS,
         'started' : "Boolean to tell whether the server should be started or stopped.",
         'dseMods' : "List of change that needs to be applied on dse.ldif after the instance creation",
     }
-    CHILDREN = { 'backends' : YAMLBackend }
+    CHILDREN = { 'backends' : ConfigBackend }
     # getDirSrv parameter
     DIRSRV_NOLDAPI = 1    # Used to check directory manager password
     DIRSRV_LDAPI = 2      # Used for connectionless operation (i.e: start/stop)
@@ -1028,7 +1027,7 @@ class YAMLInstance(MyYAMLObject):
         self.state = "absent"
         self._dse = None
         self._DirSrv = { }
-        for m in YAMLInstance.DIRSRV_MODES:
+        for m in ConfigInstance.DIRSRV_MODES:
             self._DirSrv[m] = None
         self._initial_state = "unknown"
         self._mustCreate = False
@@ -1074,7 +1073,7 @@ class YAMLInstance(MyYAMLObject):
         if not self.exists():
             return "absent"
         if dirSrv == "get it":
-            dirSrv = self.getDirSrv(mode = YAMLInstance.DIRSRV_LDAPI)
+            dirSrv = self.getDirSrv(mode = ConfigInstance.DIRSRV_LDAPI)
         if dirSrv is None:
             return "unknown"
         if not dirSrv.exists():
@@ -1084,7 +1083,7 @@ class YAMLInstance(MyYAMLObject):
         return "stopped"
 
     def getDirSrv(self, mode = DIRSRV_OPEN):
-        assert mode in YAMLInstance.DIRSRV_MODES
+        assert mode in ConfigInstance.DIRSRV_MODES
         dirSrv = None
         if self.exists():
             dirSrv = self._DirSrv[mode]
@@ -1098,12 +1097,12 @@ class YAMLInstance(MyYAMLObject):
             self._initial_state = status
         if status == "absent":
             return dirSrv
-        if mode == YAMLInstance.DIRSRV_NOLDAPI:
+        if mode == ConfigInstance.DIRSRV_NOLDAPI:
             if status == "stopped":
                 dirSrv.start()
-        elif mode == YAMLInstance.DIRSRV_LDAPI:
+        elif mode == ConfigInstance.DIRSRV_LDAPI:
             dirSrv.setup_ldapi()
-        elif mode == YAMLInstance.DIRSRV_OPEN:
+        elif mode == ConfigInstance.DIRSRV_OPEN:
             dirSrv.setup_ldapi()
             if status == "stopped":
                 dirSrv.start()
@@ -1125,7 +1124,7 @@ class YAMLInstance(MyYAMLObject):
         state = self._getInstanceStatus()
         if state == 'absent':
             return
-        log.debug(f'YAMLInstance.getFacts(instance: {self.name} state:{state}')
+        log.debug(f'ConfigInstance.getFacts(instance: {self.name} state:{state}')
         dse = self.getDSE()
         assert dse
 
@@ -1133,7 +1132,7 @@ class YAMLInstance(MyYAMLObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"YAMLInstance.getFacts {self.name} option:{action.option.name} val:{val}")
+            log.debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val}")
             if val and (val != vdef or action.option.name == 'state'):
                 setattr(self, action.option.name, val)
 
@@ -1141,7 +1140,7 @@ class YAMLInstance(MyYAMLObject):
             for dn in dse.class2dn['nsbackendinstance']:
                 m = re.match('cn=([^,]*),cn=ldbm database,cn=plugins,cn=config', dn)
                 if m:
-                    backend = YAMLBackend(m.group(1), parent=self)
+                    backend = ConfigBackend(m.group(1), parent=self)
                     self.backends[backend.name] = backend
                     backend.getFacts()
 
@@ -1153,7 +1152,7 @@ class YAMLInstance(MyYAMLObject):
         self.setOption('dseMods', result.toYaml())
 
     def create(self):
-        log.debug(f"YAMLInstance.create {self.name}")
+        log.debug(f"ConfigInstance.create {self.name}")
         config = self._infConfig
         config['general'] = { 'version' : 2, 'start' : 'True' }
         config['slapd'] = { 'instance_name' : self.name }
@@ -1174,7 +1173,7 @@ class YAMLInstance(MyYAMLObject):
         s.create_from_args(general, slapd, backends)
 
     def delete(self):
-        dirsrv = self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
+        dirsrv = self.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI)
         dirsrv.stop
         dirsrv.delete()
         self._isDeleted = True
@@ -1195,13 +1194,13 @@ class YAMLInstance(MyYAMLObject):
         defaultglobalDSEpath = self.getPath(self.GLOBAL_DSE_PATH)
         if not os.access(defaultglobalDSEpath, os.F_OK):
             ### If it does not exists then create a dummy instance
-            dummyInstance = YAMLInstance('ansible-default', YAMLRoot())
+            dummyInstance = ConfigInstance('ansible-default', ConfigRoot())
             dummyInstance.started = False
             dummyInstance.port, dummyInstance.secure_port = self.get2ports()
             dummyInstance.secure = 'on'
             dummyInstance.self_sign_cert = True
             dummyInstance.create()
-            dummydirSrv =  dummyInstance.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
+            dummydirSrv =  dummyInstance.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI)
             dsePath = dummyInstance.getPath(self.DSE_PATH)
 
             ### Preserve the dumy instance dse.ldif
@@ -1221,7 +1220,7 @@ class YAMLInstance(MyYAMLObject):
             return defaultDSE
 
     def _stateAction(self=None, action=None, action2perform=None):
-        log.debug(f'YAMLInstance._stateAction inst={self.name} action2perform={action2perform} action={action}')
+        log.debug(f'ConfigInstance._stateAction inst={self.name} action2perform={action2perform} action={action}')
         option = action.option
         if _is_none_ignored(self, action):
             action.vto = "present"
@@ -1258,7 +1257,7 @@ class YAMLInstance(MyYAMLObject):
         elif action2perform == OptionAction.DEFAULT:
             return True
         elif action2perform == OptionAction.FACT:
-            return action.target.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).status()
+            return action.target.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI).status()
         elif action2perform == OptionAction.CONFIG:
             pass
         elif action2perform == OptionAction.UPDATE:
@@ -1276,7 +1275,7 @@ class YAMLInstance(MyYAMLObject):
                 summary.extend((f'Removing instance {self.name}',))
                 if onlycheck:
                     return
-                inst = self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI)
+                inst = self.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI)
                 inst.delete()
                 if facts:
                     getattr(facts, 'instances').pop(self.name, None)
@@ -1292,9 +1291,9 @@ class YAMLInstance(MyYAMLObject):
         super().update(facts, summary, onlycheck, args)
         # Lets insure that started state is the wanted one.
         if wantedstate == "started":
-            self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).start()
+            self.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI).start()
         else:
-            self.getDirSrv(mode=YAMLInstance.DIRSRV_LDAPI).stop()
+            self.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI).stop()
 
     def isAttrUpToDate(self, entry, attr, vals):
         if not entry:
@@ -1305,7 +1304,7 @@ class YAMLInstance(MyYAMLObject):
 
     def filterOps(self, dirSrv, mods, overwrite):
         ops=[]
-        log.debug(f'YAMLInstance.filterOps mods={type(mods)}: {mods}')
+        log.debug(f'ConfigInstance.filterOps mods={type(mods)}: {mods}')
         for dn, actionDict in mods.items():
             entry = Entry.fromDS(dirSrv, dn)
             for action in actionDict.keys():
@@ -1388,36 +1387,36 @@ class YAMLInstance(MyYAMLObject):
         dirSrv.stop()
         raise NotImplementedError("Code not yet implemented.")
 
-class YAMLRoot(MyYAMLObject):
+class ConfigRoot(MyConfigObject):
     OPTIONS = (
         SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
         SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed", vdef="present", choice= ("present", "updated", "absent")),
 
     )
-    CHILDREN = { 'instances': YAMLInstance }
+    CHILDREN = { 'instances': ConfigInstance }
 
     def from_path(path):
-        ### Decode and validate parameters from yaml or json file. Returns a YAMLRoot object
+        ### Decode and validate parameters from yaml or json file. Returns a ConfigRoot object
         if path.endswith('.yaml') or path.endswith('.yml'):
             with open(path, 'r') as f:
                 content = yaml.safe_load(f)
         else:
             with open(path, 'r') as f:
                 content = json.load(f)
-        host = YAMLRoot()
+        host = ConfigRoot()
         host.set(content)
         return host
 
     def from_stdin():
-        ### Decode and validate parameters from stdin (interpreted as a json file. Returns a YAMLRoot object
+        ### Decode and validate parameters from stdin (interpreted as a json file. Returns a ConfigRoot object
         content = json.load(sys.stdin)
-        host = YAMLRoot()
+        host = ConfigRoot()
         host.set(content)
         return host
 
     def from_content(content):
-        ### Validate parameters from raw dict object. Returns a YAMLRoot object
-        host = YAMLRoot()
+        ### Validate parameters from raw dict object. Returns a ConfigRoot object
+        host = ConfigRoot()
         host.set(content)
         return host
 
@@ -1442,7 +1441,7 @@ class YAMLRoot(MyYAMLObject):
             ### Extract the instance name from dse.ldif path
             m = re.match(f'.*/slapd-([^/]*)/dse.ldif$', f)
             ### Then creates the Instance Objects
-            instance = YAMLInstance(m.group(1), parent=self)
+            instance = ConfigInstance(m.group(1), parent=self)
             self.instances[instance.name] = instance
             ### And populate them
             instance.getFacts()
@@ -1465,7 +1464,7 @@ class YAMLRoot(MyYAMLObject):
 
     def _stateAction(self=None, action=None, action2perform=None):
         instances = get_instance_list()
-        log.debug(f"YAMLRoot._stateAction: dn= {self.getPath(YAMLIndex.IDXDN)}")
+        log.debug(f"ConfigRoot._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
         if action2perform == OptionAction.DESC:
             if action.vto == "absent" and len(instances) > 0:
                 return "Removing all instances"
@@ -1485,3 +1484,25 @@ class YAMLRoot(MyYAMLObject):
                     dirSrv = DirSrv()
                     dirSrv.local_simple_allocate(serverid=inst)
                     dirSrv.remove()
+
+
+def toAnsibleResult(object):
+   cb=getattr(object, "toAnsibleResult", None)
+   if cb is not None:
+        return cb(object)
+   if isinstance(object, MyConfigObject):
+        log.debug(f"toAnsibleResult: object={object}")
+        return toAnsibleResult( object.__getstate__() )
+   if type(object) is list:
+        l=[]
+        for i in object:
+            l.append(toAnsibleResult(i))
+        return l
+   if type(object) is tuple:
+        return tuple(toAnsibleResult(list(object)))
+   if type(object) is dict:
+        d={}
+        for k,v in object.items():
+            d[toAnsibleResult(k)] = toAnsibleResult(v)
+        return d
+   return object

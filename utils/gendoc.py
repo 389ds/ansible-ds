@@ -23,7 +23,7 @@ from inspect import cleandoc
 p = str(Path(__file__).parent.parent)
 
 sys.path += ( f"{p}/ansible_collections/ds/ansible_ds/plugins", )
-from module_utils.dsentities import YAMLRoot
+from module_utils.dsentities import ConfigRoot
 from module_utils.dsutil import setLogger, getLogger, log
 
 class Doc:
@@ -190,7 +190,7 @@ class Doc:
     def generate(self, tab):
         # Generate ansible option doc from module classes
         print(cleandoc(self.header))
-        self.walk_entity(YAMLRoot, tab + self.tab)
+        self.walk_entity(ConfigRoot, tab + self.tab)
         print(cleandoc(self.footer))
 
 class Spec(Doc):
@@ -281,7 +281,7 @@ class Desc(Doc):
     """ Generation entity tree and options table in human readable markdown format """
 
     def classname(nclass):
-        res = re.match(".*YAML([^']*)", str(nclass))
+        res = re.match(".*Config([^']*)", str(nclass))
         return res.group(1).strip()
 
     def __init__(self, fout=sys.stdout):
@@ -321,13 +321,13 @@ class Desc(Doc):
         self.silent = True
         self.print("# Entities tree\n - Root")
         self.silent = False
-        self.walk_entity(YAMLRoot, tab + self.tab, actionOption=None, actionEntity=self.printEntity)
+        self.walk_entity(ConfigRoot, tab + self.tab, actionOption=None, actionEntity=self.printEntity)
         self.print("\n# Options per entities")
         self.silent = True 
         self.print("## Root")
         self.print("| Option | Required | Type | Description | Comment |")
         self.print("| - | - | - | - | - |")
-        self.walk_entity(YAMLRoot, tab + self.tab, actionOption=self.printOptions, actionEntity=self.printEntityHeader)
+        self.walk_entity(ConfigRoot, tab + self.tab, actionOption=self.printOptions, actionEntity=self.printEntityHeader)
 
 
 

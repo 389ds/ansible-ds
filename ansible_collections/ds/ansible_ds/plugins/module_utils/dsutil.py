@@ -158,30 +158,8 @@ def search_ext_s(inst, *args, **kwargs):
     return _ldap_op_s(inst, inst.search_ext_s, 'search_ext_s', *args, **kwargs)
 
 
-def toAnsibleResult(object):
-   cb=getattr(object, "toAnsibleResult", None)
-   if cb is not None:
-        return cb(object)
-   if isinstance(object, yaml.YAMLObject):
-        log.debug(f"toAnsibleResult: object={object}")
-        return toAnsibleResult( { 'tag':object.yaml_tag,  **object.__getstate__() } )
-   if type(object) is list:
-        l=[]
-        for i in object:
-            l.append(toAnsibleResult(i))
-        return l
-   if type(object) is tuple:
-        return tuple(toAnsibleResult(list(object)))
-   if type(object) is dict:
-        d={}
-        for k,v in object.items():
-            d[toAnsibleResult(k)] = toAnsibleResult(v)
-        return d
-   return object
-
-
 @dataclass
-class NormalizedDict(dict, yaml.YAMLObject):
+class NormalizedDict(dict):
     """
         A dict with normalized key stored in hash table 
         Note: The original version of the key (or the first one
@@ -280,7 +258,7 @@ class NormalizedDict(dict, yaml.YAMLObject):
 #values()       Returns a list of all the values in the dictionary
 #
 
-class LdapOp(yaml.YAMLObject):
+class LdapOp():
     """
         A dict with normalized key  stored in hash table
         Note: The original version of the key (or the first one

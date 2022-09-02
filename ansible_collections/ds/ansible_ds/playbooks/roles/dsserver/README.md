@@ -171,10 +171,10 @@ dsserver_prefix | the directory server installation prefix (default is '') | no
 
 Variable tree description
 -------------------------
-  - instances: A list of <class 'module_utils.dsentities.YAMLInstance'>
-      - backends: A list of <class 'module_utils.dsentities.YAMLBackend'>
-          - agmts: A list of <class 'module_utils.dsentities.YAMLAgmt'>
-          - indexes: A list of <class 'module_utils.dsentities.YAMLIndex'>
+  - instances: A list of <class 'module_utils.dsentities.ConfigInstance'>
+      - backends: A list of <class 'module_utils.dsentities.ConfigBackend'>
+          - agmts: A list of <class 'module_utils.dsentities.ConfigAgmt'>
+          - indexes: A list of <class 'module_utils.dsentities.ConfigIndex'>
 
 # Options per entities
 
