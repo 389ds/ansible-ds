@@ -33,31 +33,31 @@ class MyYamlObject(dict, yaml.YAMLObject):
         self.__dict__ = d
         d.pop('tag')
 
-class YAMLRoot(MyYamlObject):
+class ConfigRoot(MyYamlObject):
     yaml_tag = u'!ds389Host'
 
-class YAMLInstance(MyYamlObject):
+class ConfigInstance(MyYamlObject):
     yaml_tag = u'!ds389Instance'
 
-class YAMLBackend(MyYamlObject):
+class ConfigBackend(MyYamlObject):
     yaml_tag = u'!ds389Backend'
 
-class YAMLIndex(MyYamlObject):
+class ConfigIndex(MyYamlObject):
     yaml_tag = u'!ds389Index'
 
 entities = { u'tag:yaml.org,2002:map' : MyYamlObject,
-             u'!ds389Host' : YAMLRoot ,
-             u'!ds389Instance' : YAMLInstance,
-             u'!ds389Backend' : YAMLBackend,
-             u'!ds389Index' : YAMLIndex
+             u'!ds389Host' : ConfigRoot ,
+             u'!ds389Instance' : ConfigInstance,
+             u'!ds389Backend' : ConfigBackend,
+             u'!ds389Index' : ConfigIndex
            }
 
-# end of YAML entities definition
+# end of Config entities definition
 
 # Callback to compute object classes from json
 def hook(d):
     if isinstance(d, dict):
-        # handle YAML entities
+        # handle Config entities
         if 'tag' in d and  d['tag'] in entities:
             return entities[d['tag']](d)
         # Handle fact result

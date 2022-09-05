@@ -165,13 +165,13 @@ import argparse
 # import the collection module_utils modules.
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
-    from module_utils.dsentities import YAMLRoot
+    from module_utils.dsentities import ConfigRoot
     from module_utils.dsutil import setLogger, getLogger, log
-    from module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from module_utils.dsutil import setLogger, getLogger, log
     from module_utils.dsentities_options import CONTENT_OPTIONS
 else:
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import YAMLRoot
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import ConfigRoot
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log
     from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities_options import CONTENT_OPTIONS
 
 
@@ -215,15 +215,15 @@ def run_module():
     path = module.params['path']
     content = module.params['content']
 
-    # Validate the parameter and get a YAMLRoot object
+    # Validate the parameter and get a ConfigRoot object
     c="{}"
     try:
         if path:
-            wanted_state = YAMLRoot.from_path(path)
+            wanted_state = ConfigRoot.from_path(path)
         elif content:
-            wanted_state = YAMLRoot.from_content(content)
+            wanted_state = ConfigRoot.from_content(content)
         else:
-            wanted_state = YAMLRoot.from_stdin()
+            wanted_state = ConfigRoot.from_stdin()
     except Exception as e:
         raise e
         module.fail_json(f'Failed to validate the parameters. error is {e}')
@@ -231,7 +231,7 @@ def run_module():
 
     log.debug(f"wanted_state={wanted_state}")
     # Determine current state
-    host = YAMLRoot()
+    host = ConfigRoot()
     host.getFacts()
     # Then change it
     summary = []

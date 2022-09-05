@@ -31,16 +31,16 @@ class MyClassObject(yaml.YAMLObject):
             dict[key] = val
         return dict
 
-class YAMLHost(MyClassObject):
+class ConfigHost(MyClassObject):
     yaml_tag = u'!ds389Host'
 
-class YAMLInstance(MyClassObject):
+class ConfigInstance(MyClassObject):
     yaml_tag = u'!ds389Instance'
 
-class YAMLBackend(MyClassObject):
+class ConfigBackend(MyClassObject):
     yaml_tag = u'!ds389Backend'
 
-class YAMLIndex(MyClassObject):
+class ConfigIndex(MyClassObject):
     yaml_tag = u'!ds389Index'
 
 class MyJsonEncoder(json.JSONEncoder):

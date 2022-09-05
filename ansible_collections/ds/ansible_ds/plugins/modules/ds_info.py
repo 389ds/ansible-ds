@@ -166,11 +166,11 @@ import traceback
 
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
-    from module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLRoot, YAMLInstance, YAMLBackend, YAMLIndex
-    from module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyConfigObject, ConfigRoot, ConfigInstance, ConfigBackend, ConfigIndex, toAnsibleResult
+    from module_utils.dsutil import setLogger, getLogger, log
 else:
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyYAMLObject, YAMLRoot, YAMLInstance, YAMLBackend, YAMLIndex
-    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log, toAnsibleResult
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsentities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyConfigObject, ConfigRoot, ConfigInstance, ConfigBackend, ConfigIndex, toAnsibleResult
+    from ansible_collections.ds.ansible_ds.plugins.module_utils.dsutil import setLogger, getLogger, log
 
 
 
@@ -224,7 +224,7 @@ def run_module():
 
     ### Create the main "Host" node containing this host instances
     try:
-        dsroot = YAMLRoot()
+        dsroot = ConfigRoot()
         dsroot.getFacts()
     except Exception as e:
         print(traceback.format_exc(), file=sys.stderr)
