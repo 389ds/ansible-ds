@@ -9,9 +9,9 @@
 #
 
 ###### GENERATE DOC FRAGMENT ###########
-# Usage:  python gendoc.py doc  Generate the doc fragment about ds_server options
+# Usage:  python gendoc.py doc  Generate the doc fragment about ds389_server options
 # Usage:  python gendoc.py spec  Generate the python file with the ansible parameter
-#                                specification for ds_server module
+#                                specification for ds389_server module
 
 import os
 import re
@@ -22,9 +22,9 @@ from inspect import cleandoc
 
 p = str(Path(__file__).parent.parent)
 
-sys.path += ( f"{p}/ansible_collections/ds/ansible_ds/plugins", )
-from module_utils.dsentities import ConfigRoot
-from module_utils.dsutil import setLogger, getLogger, log
+sys.path += ( f"{p}/ansible_collections/ds389/ansible_ds/plugins", )
+from module_utils.ds389_entities import ConfigRoot
+from module_utils.ds389_util import setLogger, getLogger, log
 
 class Doc:
     STATE_DESC = """'state' option determines how the other option are handled:
@@ -61,7 +61,7 @@ class Doc:
             # *** WARNING! DO NOT MODIFY THIS FILE. ***
             # This file is generated from following files:
             #  - utils/gendoc.py
-            #  - ansible_collections/ds/ansible_ds/plugins/module_utils/dsentities.py
+            #  - ansible_collections/ds389/ansible_ds/plugins/module_utils/ds389_entities.py
             # by using 'make gensrc'
 
             from __future__ import (absolute_import, division, print_function)
@@ -209,7 +209,7 @@ class Spec(Doc):
 # *** WARNING! DO NOT MODIFY THIS FILE. ***
 # This file is generated from following files:
 #  - utils/gendoc.py
-#  - ansible_collections/ds/ansible_ds/plugins/module_utils/dsentities.py
+#  - ansible_collections/ds389/ansible_ds/plugins/module_utils/ds389_entities.py
 # by using 'make gensrc'
 
 CONTENT_OPTIONS = {"""
@@ -263,14 +263,14 @@ class Readme:
         res = re.match('@@@INSERT *([^ ]*)', line)
         if res:
             name = res.group(1).strip()
-            self.cat(f'{p}/ansible_collections/ds/ansible_ds/playbooks/{name}', fout)
+            self.cat(f'{p}/ansible_collections/ds389/ansible_ds/playbooks/{name}', fout)
         elif re.match('@@@DESC', line):
             Desc(fout).generate("")
         else:
             fout.write(line)
             
     def generate(self):
-        for path in glob.iglob(f"{p}/ansible_collections/ds/ansible_ds/**/*.tmpl", recursive=True):
+        for path in glob.iglob(f"{p}/ansible_collections/ds389/ansible_ds/**/*.tmpl", recursive=True):
             with open(path, 'r') as fin:
                 with open(path.replace('tmpl', 'md'), 'w') as fout:
                     for line in fin:

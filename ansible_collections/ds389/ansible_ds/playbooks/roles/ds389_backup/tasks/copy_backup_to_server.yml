@@ -1,0 +1,37 @@
+---
+- name: Fail on invalid ds389_backup_archive_path
+  fail: msg="ds389_backup_archive_path {{ ds389_backup_archive_path }} is not valid"
+  when: ds389_backup_archive_path is not defined or
+        ds389_backup_archive_path | length < 1
+
+- name: Set controller source directory
+  set_fact:
+    ds389_backup_controller_dir:
+      "{{ ds389_backup_controller_path | default(lookup('env','PWD')) }}"
+
+- name: Set ds389_backup_item
+  set_fact:
+    ds389_backup_item: "{{ ds389_backup_archive_path }}"
+
+- name: Stat backup to copy
+  stat:
+    path: "{{ ds389_backup_controller_dir }}/{{ ds389_backup_archive_path }}"
+  register: result_backup_stat
+  delegate_to: localhost
+  become: no
+
+- name: Fail on missing backup to copy
+  fail: msg="Unable to find backup {{ ds389_backup_archive_path }}"
+  when: result_backup_stat.stat.isdir is not defined
+
+- name: Get DS backup dir
+  import_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"
+
+- name: Copy backup files to server for "{{ ds389_backup_item }}"
+  copy:
+    src: "{{ ds389_backup_controller_dir }}/{{ ds389_backup_archive_path }}/"
+    dest: "{{ ds389_backup_dir }}/{{ ds389_backup_item }}"
+    owner: dirsrv
+    group: dirsrv
+    mode: u=rw,go=r
+    directory_mode: u=rwx,go=

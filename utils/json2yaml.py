@@ -13,7 +13,7 @@
 #  Generate a json_file_path.yml file containing the YAML
 #
 # Example: to collect ds state then replay then:
-#   echo '{ "ANSIBLE_MODULE_ARGS": { "prefix" : "'"$PREFIX"'" } }' | ds_info.py > /tmp/o
+#   echo '{ "ANSIBLE_MODULE_ARGS": { "prefix" : "'"$PREFIX"'" } }' | ds389_info.py > /tmp/o
 #   j2y.py /tmp/o
 #   dsupdate.py /tmp/o.yml
 

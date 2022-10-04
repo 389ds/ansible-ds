@@ -1,0 +1,14 @@
+---
+
+  - name: Collect DS Instances
+    ds389.ansible_ds.ds389_info:
+        prefix: "{{ lookup('env', 'PREFIX') | default('', True) }}"
+    register: result
+  - name: "Set variables"
+    set_fact:
+      ds389_server_instances: "{{ result.my_useful_info.ds389_server_instances }}"
+
+  - name: Debug
+    ansible.builtin.debug:
+      msg:
+        - Result is {{ ds389_server_instances }}

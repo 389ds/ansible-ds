@@ -1,0 +1,5 @@
+---
+# defaults file for ds389_backup
+ds389_backup_keep_on_server: no
+ds389_backup_to_controller: no
+ds389_backup_from_controller: no

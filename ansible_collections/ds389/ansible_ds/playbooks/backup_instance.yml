@@ -1,0 +1,8 @@
+---
+- name: Playbook to backup 389 DS instance
+  hosts: localhost
+  become: true
+
+  roles:
+  - role: ds389_backup
+    state: present

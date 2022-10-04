@@ -1,0 +1,6 @@
+# This files contains the default variables to create the instances
+# These variables may be overwritten by the playbook variable
+
+ds389_server_backends: { }
+
+ds389_server_prefix: "{{ lookup('env', 'PREFIX') | default('', True) }}"

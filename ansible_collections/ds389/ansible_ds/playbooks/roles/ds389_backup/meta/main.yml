@@ -1,0 +1,21 @@
+dependencies: []
+
+galaxy_info:
+  author: Simon Pichugin
+  description: A role to backup and restore an DS instance
+  company: Red Hat, Inc
+  license: GPLv3
+  min_ansible_version: 2.9
+  platforms:
+  - name: Fedora
+    versions:
+    - all
+  - name: EL
+    versions:
+    - 8
+    - 9
+  galaxy_tags:
+    - linux
+    - ds389
+    - ds
+    - ldap

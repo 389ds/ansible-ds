@@ -1,0 +1,12 @@
+---
+- name: Playbook to backup DS instance to controller
+  hosts: localhost
+  become: true
+
+  vars:
+    ds389_backup_to_controller: yes
+    # ds389_backup_keep_on_server: yes
+
+  roles:
+  - role: ds389_backup
+    state: present
