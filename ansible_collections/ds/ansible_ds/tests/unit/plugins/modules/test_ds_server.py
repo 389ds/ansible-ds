@@ -19,8 +19,6 @@ import sys
 
 # Set PYTHONPATH to be able to find lib389 in PREFIX install
 # (computed within conftest seesion initialization hook)
-if "LIB389PATH" in os.environ:
-    sys.path.insert(0, os.environ['LIB389PATH'])
 from lib389 import DirSrv
 from lib389.properties import SER_SERVERID_PROP
 

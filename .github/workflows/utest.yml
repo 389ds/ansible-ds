@@ -1,0 +1,115 @@
+name: Unit tests
+on: 
+  push:
+  pull_request:
+  schedule:
+    - cron:  '0 2 * * *'
+
+  workflow_dispatch:
+    inputs:
+      pytest_tests:
+        description: 'Run only specified suites or test modules delimited by space, for example "basic/basic_test.py replication"'
+        required: false
+        default: false
+      debug_enabled:
+        description: 'Set to "true" to enable debugging with tmate (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
+
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    container:
+      image: quay.io/389ds/ci-images:test
+    outputs:
+        matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Add GITHUB_WORKSPACE as a safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Get a list of all test suites
+        id: set-matrix
+        run: echo "::set-output name=matrix::$(python3 .github/scripts/generate_matrix.py ${{ github.event.inputs.pytest_tests }})"
+
+      - name: Install base software
+        run: dnf install -y python3-lib389 ansible
+
+      - name: Install python prerequisites
+        run: python3 -m pip install -r requirements.txt
+
+      - name: Build and install ansible_ds collection
+        run: make
+
+      - name: Upload Ansible collection
+        uses: actions/upload-artifact@v2
+        with:
+          name: ansible_ds
+          path: ansible_ds.tgz
+
+    
+
+  pytests:
+    name: Pytests
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.build.outputs.matrix) }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup tmate session
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: true
+      if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled }}
+
+    - name: Install dependencies
+      run: |
+        sudo apt update -y
+        sudo apt install -y docker.io containerd runc
+        sudo cp .github/daemon.json /etc/docker/daemon.json
+        sudo systemctl unmask docker
+        sudo systemctl start docker
+
+    - name: Download collection
+      uses: actions/download-artifact@master
+      with:
+        name: ansible_ds
+
+    - name: Run pytest in a container
+      run: |
+        set -x
+        CID=$(sudo docker run -d -h server.example.com --ulimit core=-1 --cap-add=SYS_PTRACE --privileged --rm --shm-size=4gb -v ${PWD}:/workspace quay.io/389ds/ci-images:test)
+        sudo docker exec $CID sh -c "dnf install -y -v 389-ds-base python3-lib389 python3-pip python3-pytest ansible"
+        sudo docker exec $CID sh -c "systemctl start dbus.service"
+        sudo docker exec $CID sh -c "mkdir -p /workspace/assets/cores && chmod 777 /workspace{,/assets{,/cores}}"
+        sudo docker exec $CID py.test  --suppress-no-test-exit-code  -m "not flaky" --junit-xml=pytest.xml --html=pytest.html -v ansible_collections/ds/ansible_ds/tests/${{ matrix.suite }}
+
+    - name: Make the results file readable by all
+      if: always()
+      run: |
+        sudo chmod -f -v -R a+r pytest.*ml assets
+        sudo chmod -f -v a+x assets
+
+    - name: Sanitize filename
+      if: always()
+      run: echo "PYTEST_SUITE=$(echo ${{ matrix.suite }} | sed -e 's#\/#-#g')" >> $GITHUB_ENV
+
+    - name: Upload pytest test results
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: pytest-${{ env.PYTEST_SUITE }}
+        path: |
+          pytest.xml
+          pytest.html
+          assets
+
