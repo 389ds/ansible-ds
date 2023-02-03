@@ -1,0 +1,16 @@
+name: Build ansible_ds collection 
+
+runs:
+  using: "composite"
+  steps:
+    - name: Update package list
+      run: sudo apt-get update 
+      shell: bash
+
+    - name: Install needed packages
+      run: sudo DEBIAN_FRONTEND=noninteractive apt-get install -y make python3 python3-pip python-is-python3 python3-pytest pylint 389-ds python3-lib389 ansible git
+      shell: bash
+
+    - name: Build ansible collection
+      run: make
+      shell: bash

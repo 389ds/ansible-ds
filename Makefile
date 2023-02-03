@@ -10,7 +10,7 @@ all: clean $B install
 
 clean:
 	[ -d ansible_collections ] # insure $PWD is OK.
-	/bin/rm -f ansible_collections/$B
+	/bin/rm -f ansible_collections/$B $M.tgz
 	/bin/rm -rf ansible_collections/ds/ansible_ds/tests/output
 	find . -name __pycache__ | xargs /bin/rm -rf
 	find . -name .pytest_cache | xargs /bin/rm -rf
@@ -26,13 +26,14 @@ build: $B
 $B: gensrc
 	/bin/rm -f ansible_collections/$B
 	cd ansible_collections ; ansible-galaxy collection build -f $N/$M
+	cp -f ansible_collections/$B $M.tgz
 
 install:
 	/bin/rm -rf $$HOME/.ansible/collections/$N
 	cd ansible_collections ; ansible-galaxy collection install $B -f
 
 unit_test: clean $B install
-    # ansible-test seems to do its own test collection and ignore yml test so use directly pytest
+	# ansible-test seems to do its own test collection and ignore yml test so use directly pytest
 	#cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
 	pytest -vvvvv ansible_collections/$N/$M/tests 2>&1 | tee pytest.out
 
@@ -40,9 +41,18 @@ prereq:
 	pip3 install -r requirements.txt
 
 lint:
-	cd ansible_collections/ds/ansible_ds/tests; pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
+	cd ansible_collections/ds/ansible_ds/tests; pylint --disable=R0022 --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
 	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
 	#cd ansible_collections/ds/ansible_ds/tests; py.test --pylint
+
+github_pylint: lint
+
+github_anlint:
+	ansible-lint
+
+github_utest:
+	pytest-3 -vvvvv ansible_collections/$N/$M/tests
+
 
 gensrc: $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py $(SRCBASE)/plugins/module_utils/dsentities_options.py $(SRCBASE)/playbooks/roles/dsserver/README.md
 

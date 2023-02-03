@@ -13,7 +13,7 @@ import os
 import sys
 from configparser import ConfigParser, ExtendedInterpolation, NoOptionError
 from pathlib import Path
-from shutil import copyfile, copytree, rmtree
+from shutil import copytree, rmtree
 from pwd import getpwuid
 from tempfile import mkdtemp
 import json
@@ -32,8 +32,8 @@ def _setenv(var, val):
 
 def _mylog(msg):
     """Helper to incondionnaly log a message in a test."""
-    with open('/tmp/atlog.txt', 'at') as f:
-        f.write(f'{msg}\n')
+    with open('/tmp/atlog.txt', 'at', encoding='utf-8') as file:
+        file.write(f'{msg}\n')
 
 class IniFileConfig:
     """This class retrieve the ini file options out of the best section and export them in os.environ.
@@ -50,7 +50,7 @@ class IniFileConfig:
           PREFIX            where ds is installed
           LIB389PATH        where to look up for the lib389
           DEBUGGING         if set then verbose debugging mode is turned on (and some cleanup task are not done)
-          PLAYBOOKHOME      where the playbook are run. 
+          PLAYBOOKHOME      where the playbook are run.
         All above variables defaults to None
 
     """
@@ -89,7 +89,7 @@ class IniFileConfig:
                     val = self.config.get(self.best_section, var)
                     if val:
                         _setenv(var, val)
-                except NoOptionError as e:
+                except NoOptionError:
                     pass
         _setenv('ASAN_OPTIONS', 'exitcode=0')
 
@@ -110,7 +110,8 @@ class PlaybookTestEnv:
         'dsserver_replmgrpw' : 'repl-secret',
     }
 
-    def _init_vault(vault_dir):
+    @staticmethod
+    def _initVault(vault_dir):
         """Generates the vault password file and vault file for the playbook test
         """
 
@@ -118,19 +119,20 @@ class PlaybookTestEnv:
         vault_file = Path(f'{vault_dir}/{PlaybookTestEnv.VAULT_FILE}')
         os.makedirs(vault_file.parent, mode=0o700, exist_ok=True)
         # Generate vault password file
-        with open(vault_pw_file, 'wt') as f:
-            f.write(PlaybookTestEnv.VAULT_PASSWORD)
-            f.write('\n')
+        with open(vault_pw_file, 'wt', encoding='utf-8') as file:
+            file.write(PlaybookTestEnv.VAULT_PASSWORD)
+            file.write('\n')
         _setenv("ANSIBLE_VAULT_PASSWORD_FILE", vault_pw_file)
         # Generate vault file
-        with open(vault_file, 'wt') as f:
+        with open(vault_file, 'wt', encoding='utf-8') as file:
             for key,val in PlaybookTestEnv.SECRETS.items():
                 cmd =  ( 'ansible-vault', 'encrypt_string', '--stdin-name', key )
-                result = subprocess.run(cmd, encoding='utf8', text=True, input=val, capture_output=True)
-                f.write(result.stdout)
-                f.write('\n')
+                result = subprocess.run(cmd, encoding='utf8', check=False, text=True, input=val, capture_output=True)
+                file.write(result.stdout)
+                file.write('\n')
 
-    def _remove_all_instances():
+    @staticmethod
+    def _removeAllInstances():
         for serverid in get_instance_list():
             inst = DirSrv()
             inst.local_simple_allocate(serverid)
@@ -157,33 +159,33 @@ class PlaybookTestEnv:
             # Copy the test playbooks
             copytree(f'{IniFileConfig.BASE}/tests/playbooks', f'{self.dir}/playbooks')
             # Install our ansible  collection
-            subprocess.run(('ansible-galaxy', 'collection', 'install', '-p', self.pbdir, tarballpath), encoding='utf8', text=True)
+            subprocess.run(('ansible-galaxy', 'collection', 'install', '-p', self.pbdir, tarballpath),
+                           encoding='utf8', check=True, text=True)
             self.skip = False
             _setenv('ANSIBLE_LIBRARY', f'{self.pbdir}/ansible_collections/ds/ansible_ds')
             # Create the vars/vault.yml encrypted variable file
-            PlaybookTestEnv._init_vault(self.pbdir)
+            PlaybookTestEnv._initVault(self.pbdir)
         # setup the envirnment variables
-        lp = os.getenv("LIB389PATH", None)
-        pp = os.getenv("PYTHONPATH", "")
         self.debugging = os.getenv('DEBUGGING', None)
-        if lp and lp not in pp.split(':'):
-            _setenv("PYTHONPATH", f"{lp}:{pp}")
         if self.dir:
             # Generate a file to set up the environment when debugging
             # (Usefull only if PLAYBOOKHOME is set in ~/.389ds-ansible.ini)
-            with open(f'{self.pbdir}/env.sh', 'wt') as f:
-                f.write(f'#set up environment to run playbook directly.\n')
-                f.write(f'# . ./env.sh\n')
+            with open(f'{self.pbdir}/env.sh', 'wt', encoding='utf-8') as file:
+                file.write('#set up environment to run playbook directly.\n')
+                file.write('# . ./env.sh\n')
                 for key,val in _the_env.items():
-                    f.write(f'export {key}="{val}"\n')
+                    file.write(f'export {key}="{val}"\n')
                 # Then update the collection from the repository
-                f.write(f'cd {repodir}\n')
-                f.write('make clean all\n')
-                f.write(f'cd {self.pbdir}\n')
-                f.write('/bin/rm -rf ansible_collections\n')
-                f.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
+                file.write(f'cd {repodir}\n')
+                file.write('make clean all\n')
+                file.write(f'cd {self.pbdir}\n')
+                file.write('/bin/rm -rf ansible_collections\n')
+                file.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
 
     def run(self, testitem, playbook):
+        """Run a playbook
+        """
+
         if self.skip:
             pytest.skip('Failed to create playbook test environment (conftest.py)')
             return
@@ -192,18 +194,19 @@ class PlaybookTestEnv:
             cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, '-vvvvv', pb_name)
         else:
             cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, pb_name)
-        PlaybookTestEnv._remove_all_instances()
+        PlaybookTestEnv._removeAllInstances()
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=self.pbdir) # pylint: disable=subprocess-run-check
         testitem.add_report_section("call", "stdout", result.stdout)
         testitem.add_report_section("call", "stderr", result.stderr)
         testitem.add_report_section("call", "cwd", self.pbdir)
         if not self.debugging:
-            PlaybookTestEnv._remove_all_instances()
+            PlaybookTestEnv._removeAllInstances()
         if result.returncode != 0:
             self.testfailed = True
             raise AssertionError(f"ansible-playbook failed: return code is {result.returncode}")
 
     def cleanup(self):
+        """Cleanup after running last playbook"""
         if self.pbh:
             return
         if self.dir and not (self.debugging and self.testfailed):
@@ -213,6 +216,10 @@ class PlaybookTestEnv:
 _CONFIG = IniFileConfig()
 _CONFIG.exportAll()
 _PLAYBOOK = PlaybookTestEnv()
+lib389path = os.getenv('LIB389PATH')
+pypath = os.getenv('PYTHONPATH')
+if lib389path and not lib389path in pypath:
+    os.environ['PYTHONPATH'] = f'{lib389path}:{pypath}'
 
 
 class AnsibleTest:
@@ -286,7 +293,7 @@ class AnsibleTest:
         result = subprocess.run([cmd], encoding='utf8', text=True, input=stdin_text, capture_output=True, check=False) # pylint: disable=subprocess-run-check
         self._logRunResult(result)
         assert result.returncode in (0, 1)
-        self.log.info(f'Module {cmd} result is {result.stdout}')
+        self.log.info('Module %s result is %s', cmd, result.stdout)
         self.result = json.loads(result.stdout)
         return self.result
 
@@ -296,12 +303,18 @@ class AnsibleTest:
         cmd = _CONFIG.getPath(f'plugins/{self.module.replace(".","/")}.py')
         return self.runModule(cmd, stdin_text)
 
+
+    # pylint: disable-next=R0201
     def lookup(self, obj, name):
+        """Search key (name) in listed maps (in obj list)."""
+        # Defined as a function rather than a static method
+        # Because classes defined in conftest are a bit cumbersome to refer within pytests
+        # So lets use a workaround to avoid R0201 lint warning
+        self.getLog("foo")
         for item in obj:
             if item['name'] == name:
                 return item
         raise KeyError(f'No children entity named {name} in {obj.name}.')
-
 
     def listInstances(self):
         """return the list of ds389 instances (extracted from runModule result)."""
@@ -328,22 +341,73 @@ def ansibletest(caplog):
     return AnsibleTest(caplog)
 
 def pytest_sessionfinish():
+    """Pytest pytest_sessionfinish hook."""
     _PLAYBOOK.cleanup()
+
 
 ### Lets run test_*.yml playbooks
 
-class PlaybookItem(pytest.Item):
+# This code is derivated from 'Working with non-python tests'
+# But unfortunatly the API depends of pytest version.
+# cf https://docs.pytest.org/en/7.2.x/example/nonpython.html#a-basic-example-for-specifying-tests-in-yaml-files
+# cf https://docs.pytest.org/en/6.2.x/example/nonpython.html#a-basic-example-for-specifying-tests-in-yaml-files
+
+# And of course version checking confuses pylint
+# pylint: disable=E1125
+
+
+class PlaybookItem6(pytest.Item):
+    """Helper class for pytest_collect_file hook that run yaml tests."""
+
+    def __init__(self, name, parent):
+        super().__init__(name, parent)
+        self.pytest_file = name
+
+    def runtest(self):
+        """Run a test playbook."""
+        _PLAYBOOK.run(self, self.pytest_file)
+
+
+class PlaybookFile6(pytest.File):
+    """Helper class for pytest_collect_file hook that run yaml tests."""
+
+    def collect(self):
+        """Helper for pytest_collect_file hook."""
+        yield PlaybookItem6.from_parent(self, name=str(self.fspath))
+
+
+class PlaybookItem7(pytest.Item):
+    """Helper class for pytest_collect_file hook that run yaml tests."""
+
     def __init__(self, pytest_file, parent):
-        super(PlaybookItem, self).__init__(pytest_file.name, parent)
+        super().__init__(pytest_file.name, parent)
         self.pytest_file = pytest_file
 
     def runtest(self):
+        """Run a test playbook."""
         _PLAYBOOK.run(self, self.pytest_file.path)
 
-class PlaybookFile(pytest.File):
-    def collect(self):
-        yield PlaybookItem.from_parent(parent=self, pytest_file=self)
 
-def pytest_collect_file(parent, file_path):
-    if file_path.suffix == ".yml" and file_path.name.startswith("test_"):
-        return PlaybookFile.from_parent(parent, path=file_path)
+class PlaybookFile7(pytest.File):
+    """Helper class for pytest_collect_file hook that run yaml tests."""
+
+    def collect(self):
+        """Helper for pytest_collect_file hook."""
+        yield PlaybookItem7.from_parent(parent=self, pytest_file=self)
+
+
+pytestMajorVersion = int(pytest.__version__.split('.', maxsplit=1)[0])
+if pytestMajorVersion == 6:
+    def pytest_collect_file(parent, path):
+        """Pytest pytest_collect_file hook that handles yaml files."""
+        if path.ext == ".yml" and path.basename.startswith("test_"):
+            return PlaybookFile6.from_parent(parent, fspath=path)
+        return None
+elif pytestMajorVersion >= 7:
+    def pytest_collect_file(parent, file_path):
+        """Pytest pytest_collect_file hook that handles yaml files."""
+        if file_path.suffix == ".yml" and file_path.name.startswith("test_"):
+            return PlaybookFile7.from_parent(parent, path=file_path)
+        return None
+else:
+    raise NotImplementedError(f"pytest version {pytestMajorVersion}.x is not supported. Need 6.x or 7.x")
