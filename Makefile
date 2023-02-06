@@ -41,14 +41,13 @@ prereq:
 	pip3 install -r requirements.txt
 
 lint:
-	cd ansible_collections/ds389/ansible_ds/tests; pylint --disable=R0022 --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
-	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
-	#cd ansible_collections/ds389/ansible_ds/tests; py.test --pylint
+    # Lets exclude the plugins code until we have done a code cleanup
+	pylint --rcfile $(PWD)/.pylintrc $$(find . -name '*.py' | grep -v plugins)
 
 github_pylint: lint
 
 github_anlint:
-	ansible-lint
+	cd $(HOME)/.ansible && ansible-lint
 
 github_utest:
 	pytest-3 -vvvvv ansible_collections/$N/$M/tests

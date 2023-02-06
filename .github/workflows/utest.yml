@@ -34,7 +34,7 @@ jobs:
 
       - name: Get a list of all test suites
         id: set-matrix
-        run: echo "::set-output name=matrix::$(python3 .github/scripts/generate_matrix.py ${{ github.event.inputs.pytest_tests }})"
+        run: echo "matrix=$(python3 .github/scripts/generate_matrix.py ${{ github.event.inputs.pytest_tests }})" >>$GITHUB_OUTPUT
 
       - name: Install base software
         run: dnf install -y python3-lib389 ansible
@@ -46,7 +46,7 @@ jobs:
         run: make
 
       - name: Upload Ansible collection
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ansible_ds
           path: ansible_ds.tgz
@@ -105,7 +105,7 @@ jobs:
 
     - name: Upload pytest test results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: pytest-${{ env.PYTEST_SUITE }}
         path: |

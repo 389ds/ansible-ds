@@ -8,60 +8,63 @@
 # --- END COPYRIGHT BLOCK ---
 #
 
-#
-# Usage: yaml2json.py yaml_file_path
-#  Generate a yaml_file_path.json file containing the JSON
-#
+"""Debugging tool used to convert json file to yaml.
+    Usage: yaml2json.py yaml_file_path
+           Generate a yaml_file_path.json file containing the JSON.
+"""
 
 import sys
-import os
 import json
 import yaml
 
-# Lets define the entities objects associated with YAML tags
-# Note that is just a placeholder so that YAML tags get rightly displayed.
-
 class MyClassObject(yaml.YAMLObject):
+    """Defines the entities objects associated with YAML tags.
+        Note: is just a placeholder so that YAML tags get rightly displayed.
+    """
+
     yaml_loader = yaml.SafeLoader
 
     def toObj(self):
-        dict = { "tag" : self.yaml_tag }
+        """Convert object into dict."""
+        _dict = { "tag" : self.yaml_tag }
         for key, val in self.__dict__.items():
             print(f"{key}->{val}")
-            dict[key] = val
-        return dict
+            _dict[key] = val
+        return _dict
 
 class ConfigHost(MyClassObject):
-    yaml_tag = u'!ds389Host'
+    """The Host entity placeholder."""
+    yaml_tag = '!ds389Host'
 
 class ConfigInstance(MyClassObject):
-    yaml_tag = u'!ds389Instance'
+    """The Instance entity placeholder."""
+    yaml_tag = '!ds389Instance'
 
 class ConfigBackend(MyClassObject):
-    yaml_tag = u'!ds389Backend'
+    """The Backend entity placeholder."""
+    yaml_tag = '!ds389Backend'
 
 class ConfigIndex(MyClassObject):
-    yaml_tag = u'!ds389Index'
+    """The Index entity placeholder."""
+    yaml_tag = '!ds389Index'
 
 class MyJsonEncoder(json.JSONEncoder):
-    def default(self, obj):
-        print(f"obj={obj}")
-        if isinstance(obj, MyClassObject):
-            return obj.toObj()
+    """A custom json encoder."""
+    def default(self, o):
+        print(f"obj={o}")
+        if isinstance(o, MyClassObject):
+            return o.toObj()
         # Let the base class default method raise the TypeError
-        return json.JSONEncoder.default(self, obj)
+        return json.JSONEncoder.default(self, o)
 
 
 
 
-fin_name = sys.argv[1]
-fout_name = fin_name.replace('.yml','') + '.json'
-with open(fin_name, 'r') as fin:
-    data = yaml.safe_load(fin)
+F_IN_NAME = sys.argv[1]
+F_OUT_NAME = F_IN_NAME.replace('.yml','') + '.json'
+with open(F_IN_NAME, 'r', encoding='utf-8') as f_in:
+    data = yaml.safe_load(f_in)
     print(f'data: {data}')
-    with open(fout_name, 'w') as fout:
-        fout.write(json.dumps(data, cls=MyJsonEncoder))
-print(f'{sys.argv[0]}: created {fout_name} file.')
-
-
-
+    with open(F_OUT_NAME, 'w', encoding='utf-8') as f_out:
+        f_out.write(json.dumps(data, cls=MyJsonEncoder))
+print(f'{sys.argv[0]}: created {F_OUT_NAME} file.')

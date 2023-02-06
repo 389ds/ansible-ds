@@ -1,0 +1,12 @@
+[MESSAGES CONTROL]
+# R0022 is needed because we have to handles different pytest versions with different method prototypes
+# E0401 (import-error) because we need custom sys.path 
+# C0413 (wrong-import-position) because sometime the sys.path must be set before the import
+disable=R0022,E0401,C0413
+
+
+[FORMAT]
+max-attributes=11
+max-line-length=130
+ignore-long-lines=^\s.*Option.*$
+method-naming-style=camelCase
