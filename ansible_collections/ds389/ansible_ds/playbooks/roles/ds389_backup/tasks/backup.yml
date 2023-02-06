@@ -1,0 +1,46 @@
+---
+- name: Set name of the DS archive directory
+  set_fact:
+    ds389_backup_archive_path: "localhost_{{ lookup('pipe', 'date +%Y_%m_%d_%H_%M_%S') }}"
+  when: ds389_backup_archive_path is not defined
+
+- name: Stop DS instance, if started
+  service:
+    name: dirsrv@localhost
+    state: stopped
+
+- name: Create backup
+  command:
+    argv:
+      - dsctl
+      - localhost
+      - db2bak
+      - "{{ ds389_backup_archive_path }}"
+  register: result_ds389_backup
+
+- name: Fail to backup the instance
+  fail: msg="Failed to backup the instance"
+  when: item.find("db2bak successful") < 0
+  with_items:
+  - "{{ result_ds389_backup.stdout }}"
+
+- name: Start DS instance, if started
+  service:
+    name: dirsrv@localhost
+    state: started
+
+- block:
+  - name: Copy backup to controller
+    import_tasks: "{{ role_path }}/tasks/copy_backup_from_server.yml"
+    vars:
+      ds389_backup_archive_path: "{{ ds389_backup_archive_path }}"
+    when: state|default("present") == "present"
+
+  - name: Remove backup on server
+    import_tasks: "{{ role_path }}/tasks/remove_backup_from_server.yml"
+    vars:
+      ds389_backup_item: "{{ ds389_backup_archive_path }}"
+    when: not ds389_backup_keep_on_server
+
+  when: ds389_backup_to_controller
+

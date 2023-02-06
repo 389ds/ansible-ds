@@ -1,0 +1,42 @@
+---
+- hosts: localhost
+
+  tasks:
+    - name: load encrypted variables
+      include_vars: "vault.yml"
+
+- name: Run ds389.ansible_ds.ds389_create.yml
+  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/ds389_create.yml
+  vars:
+    #ds389_server_rootpw: is imported from vault.yml
+    ds389_server_instances:
+        -
+            name: i1
+            rootpw: "{{ds389_server_rootpw}}"
+            port: 38901
+            secure_port: 63601
+            backends:
+                -
+                    name: "userroot"
+                    suffix: "dc=example,dc=com"
+                -
+                    name: "second"
+                    suffix: "dc=another example,dc=com"
+                -
+                    name: "peoplesubsuffix"
+                    suffix: "o=people,dc=example,dc=com"
+        -
+            name: i2
+            rootpw: "{{ds389_server_rootpw}}"
+            port: 38902
+            secure_port: 63602
+            backends:
+                -
+                    name: "userroot"
+                    suffix: "dc=example,dc=com"
+                -
+                    name: "second"
+                    suffix: "dc=another example,dc=com"
+                -
+                    name: "peoplesubsuffix"
+                    suffix: "o=people,dc=example,dc=com"

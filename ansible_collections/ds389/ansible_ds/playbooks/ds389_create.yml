@@ -1,0 +1,38 @@
+---
+- name: Playbook to create a set of DS instances
+  hosts: localhost
+
+  vars:
+    # In a real deployment, variables should be customized
+    # In this playbook all the variables are commented out because
+    # they are provided by the calling test playbook
+
+    # Mandatory variables:
+
+    # ds389_server_rootpw: The default Directory manager password
+    # In real deployment it should be set by using:
+    #  ansible-vault encrypt_string --stdin-name ds389_server_rootpw
+    # i.e:
+    # ds389_server_rootpw: !vault |
+    #     $ANSIBLE_VAULT;1.1;AES256
+    #     65386361623432656133343230333636626164353230623935616632636361356265623530366232
+    #     6662333634333066613430616461623433633766333936330a616239636266666465343235316666
+    #     34373235366537323163623339373332323338326266356339303337363736646563623862366261
+    #     3435303734383335390a323638313539333338313866636134393731306162343837393966333735
+    #     6134
+
+    # Optionnal variables:
+    # Description format is:  # variableName (default value) : description
+
+    # ds389_server_instance (myinstance) : Instance name
+    # ds389_server_port (389) : Non secure port (could be 0 if there is no such port)
+    # ds389_server_secure_port (636) : Secure port (could be 0 if there is no such port)
+    # ds389_server_backends (None): Backend map using the backend name: suffix notation
+
+
+  collections:
+    - ds389.ansible_ds
+
+  roles:
+    - role: ds389_server
+      state: present

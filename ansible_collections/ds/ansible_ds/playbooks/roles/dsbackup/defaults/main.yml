@@ -1,5 +1,0 @@
----
-# defaults file for dsbackup
-dsbackup_keep_on_server: no
-dsbackup_to_controller: no
-dsbackup_from_controller: no

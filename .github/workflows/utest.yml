@@ -91,7 +91,7 @@ jobs:
         sudo docker exec $CID sh -c "dnf install -y -v 389-ds-base python3-lib389 python3-pip python3-pytest ansible"
         sudo docker exec $CID sh -c "systemctl start dbus.service"
         sudo docker exec $CID sh -c "mkdir -p /workspace/assets/cores && chmod 777 /workspace{,/assets{,/cores}}"
-        sudo docker exec $CID py.test  --suppress-no-test-exit-code  -m "not flaky" --junit-xml=pytest.xml --html=pytest.html -v ansible_collections/ds/ansible_ds/tests/${{ matrix.suite }}
+        sudo docker exec $CID py.test  --suppress-no-test-exit-code  -m "not flaky" --junit-xml=pytest.xml --html=pytest.html -v ansible_collections/ds389/ansible_ds/tests/${{ matrix.suite }}
 
     - name: Make the results file readable by all
       if: always()

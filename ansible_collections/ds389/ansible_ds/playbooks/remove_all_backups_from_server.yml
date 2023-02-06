@@ -1,0 +1,11 @@
+---
+- name: Playbook to remove all backups from server
+  hosts: localhost
+  become: true
+
+  vars:
+    ds389_backup_name: all
+
+  roles:
+  - role: ds389_backup
+    state: absent

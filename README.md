@@ -41,8 +41,8 @@ git clone https://github.com/droideck/ansible-ds.git
 cd ansible-ds
 ```
 
-cp ansible_collections/ds/ansible_ds/playbooks/gather_dsinst_info.yml ansible_collections/ds/ansible_ds/gather_dsinst_info.yml
-ansible-playbook ansible_collections/ds/ansible_ds/gather_dsinst_info.yml
+cp ansible_collections/ds389/ansible_ds/playbooks/gather_dsinst_info.yml ansible_collections/ds389/ansible_ds/gather_dsinst_info.yml
+ansible-playbook ansible_collections/ds389/ansible_ds/gather_dsinst_info.yml
 
 Make sure that Ansible is installed:
 
@@ -59,7 +59,7 @@ make all
 Run the playbook:
 
 ```bash
-ansible-playbook ds.ansible_ds.gather_dsinst_info
+ansible-playbook ds389.ansible_ds.gather_dsinst_info
 ```
 
 How to run tests

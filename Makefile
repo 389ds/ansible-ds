@@ -1,5 +1,5 @@
 python_version=$(shell python -c "from sys import stdout, version_info as vi; pv='%d.%d' % (vi.major, vi.minor); stdout.write(pv)")
-N=ds
+N=ds389
 M=ansible_ds
 V=1.0.0
 B=$N-$M-$V.tar.gz
@@ -11,7 +11,7 @@ all: clean $B install
 clean:
 	[ -d ansible_collections ] # insure $PWD is OK.
 	/bin/rm -f ansible_collections/$B $M.tgz
-	/bin/rm -rf ansible_collections/ds/ansible_ds/tests/output
+	/bin/rm -rf ansible_collections/ds389/ansible_ds/tests/output
 	find . -name __pycache__ | xargs /bin/rm -rf
 	find . -name .pytest_cache | xargs /bin/rm -rf
 	/bin/rm -f pytest.out
@@ -41,9 +41,9 @@ prereq:
 	pip3 install -r requirements.txt
 
 lint:
-	cd ansible_collections/ds/ansible_ds/tests; pylint --disable=R0022 --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
+	cd ansible_collections/ds389/ansible_ds/tests; pylint --disable=R0022 --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase $$(find . -name '*.py')
 	#pylint --max-line-length=130 '--ignore-long-lines=^\s.*Option.*$$' --method-naming-style=camelCase --recursive=y .
-	#cd ansible_collections/ds/ansible_ds/tests; py.test --pylint
+	#cd ansible_collections/ds389/ansible_ds/tests; py.test --pylint
 
 github_pylint: lint
 
@@ -54,21 +54,21 @@ github_utest:
 	pytest-3 -vvvvv ansible_collections/$N/$M/tests
 
 
-gensrc: $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py $(SRCBASE)/plugins/module_utils/dsentities_options.py $(SRCBASE)/playbooks/roles/dsserver/README.md
+gensrc: $(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py $(SRCBASE)/plugins/module_utils/ds389_entities_options.py $(SRCBASE)/playbooks/roles/ds389_server/README.md
 
-$(SRCBASE)/plugins/doc_fragments/dsserver_doc.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
-	python ./utils/gendoc.py doc > $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py.tmp
-	mv -f $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py.tmp $(SRCBASE)/plugins/doc_fragments/dsserver_doc.py
+$(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/ds389_entities.py
+	python ./utils/gendoc.py doc > $(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py.tmp
+	mv -f $(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py.tmp $(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py
 
-$(SRCBASE)/plugins/module_utils/dsentities_options.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/dsentities.py
-	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp
-	mv -f $(SRCBASE)/plugins/module_utils/dsentities_options.py.tmp $(SRCBASE)/plugins/module_utils/dsentities_options.py
+$(SRCBASE)/plugins/module_utils/ds389_entities_options.py: utils/gendoc.py $(SRCBASE)/plugins/module_utils/ds389_entities.py
+	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/ds389_entities_options.py.tmp
+	mv -f $(SRCBASE)/plugins/module_utils/ds389_entities_options.py.tmp $(SRCBASE)/plugins/module_utils/ds389_entities_options.py
 
-$(SRCBASE)/playbooks/roles/dsserver/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/dsserver/README.tmpl $(SRCBASE)/playbooks/*.yml  $(SRCBASE)/plugins/module_utils/dsentities.py
+$(SRCBASE)/playbooks/roles/ds389_server/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/ds389_server/README.tmpl $(SRCBASE)/playbooks/*.yml  $(SRCBASE)/plugins/module_utils/ds389_entities.py
 	python ./utils/gendoc.py readme
 
 # Create an ini file that could be customized to run the unit_test
-INIFILE=$(HOME)/.389ds-ansible.ini
+INIFILE=$(HOME)/.ds389-ansible.ini
 ini:	$(INIFILE)
 
 $(INIFILE):
