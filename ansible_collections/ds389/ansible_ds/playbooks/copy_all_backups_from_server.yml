@@ -5,9 +5,8 @@
 
   vars:
     ds389_backup_name: all
-    ds389_backup_to_controller: yes
+    ds389_backup_to_controller: true
 
   roles:
-  - role: ds389_backup
-    state: copied
-    
+    - role: ds389_backup
+      state: copied

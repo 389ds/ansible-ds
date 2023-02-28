@@ -7,5 +7,5 @@
     ds389_backup_name: localhost_2022_05_19_21_26_26
 
   roles:
-  - role: ds389_backup
-    state: restored
+    - role: ds389_backup
+      state: restored

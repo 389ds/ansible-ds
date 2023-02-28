@@ -7,5 +7,5 @@
     ds389_backup_name: all
 
   roles:
-  - role: ds389_backup
-    state: absent
+    - role: ds389_backup
+      state: absent

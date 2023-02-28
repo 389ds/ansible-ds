@@ -1,0 +1,18 @@
+---
+exclude_paths:
+  - .github/
+  - .pylintrc
+  - utils/
+
+parseable: true
+quiet: false
+use_default_rules: true
+verbosity: 1
+
+skip_list:
+  - '301'  # Commands should not change things if nothing needs doing'
+  - '305'  # Use shell only when shell functionality is required
+  - '306'  # risky-shell-pipe
+  - experimental   # Do not run any experimental tests
+  - name[template] # Allow Jinja templating inside task names
+

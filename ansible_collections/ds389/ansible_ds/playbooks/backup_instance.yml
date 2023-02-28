@@ -4,5 +4,5 @@
   become: true
 
   roles:
-  - role: ds389_backup
-    state: present
+    - role: ds389_backup
+      state: present

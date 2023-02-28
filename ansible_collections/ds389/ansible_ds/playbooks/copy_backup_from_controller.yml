@@ -5,8 +5,8 @@
 
   vars:
     ds389_backup_name: localhost.localdomain_localhost_2022_05_19_21_25_05
-    ds389_backup_from_controller: yes
+    ds389_backup_from_controller: true
 
   roles:
-  - role: ds389_backup
-    state: copied
+    - role: ds389_backup
+      state: copied
