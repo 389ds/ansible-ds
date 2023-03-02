@@ -1,0 +1,20 @@
+---
+- hosts: localhost
+  become: false
+
+  tasks:
+    - name: Add the dockers containers to inventory
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        ansible_connection: docker
+        ansible_user: root
+      changed_when: false
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+
+- hosts: ldapservers
+  become: false
+
+  tasks:
+    - name: "Create 389ds instance"
+      ds389.ansible_ds.ds389_manage:

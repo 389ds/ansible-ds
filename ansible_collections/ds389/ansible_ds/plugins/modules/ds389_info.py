@@ -167,10 +167,10 @@ import traceback
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
     from module_utils.ds389_entities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyConfigObject, ConfigRoot, ConfigInstance, ConfigBackend, ConfigIndex, toAnsibleResult
-    from module_utils.ds389_util import setLogger, getLogger, log
+    from module_utils.ds389_util import log
 else:
     from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_entities import Option, DSEOption, ConfigOption, SpecialOption, OptionAction, MyConfigObject, ConfigRoot, ConfigInstance, ConfigBackend, ConfigIndex, toAnsibleResult
-    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_util import setLogger, getLogger, log
+    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_util import log
 
 
 
@@ -218,9 +218,6 @@ def run_module():
     verbose=0
     if 'DEBUGGING' in os.environ:
         verbose = 5
-    setLogger(__file__, verbose)
-    global log
-    log = getLogger()
 
     ### Create the main "Host" node containing this host instances
     try:

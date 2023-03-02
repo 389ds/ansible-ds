@@ -1,0 +1,60 @@
+---
+- hosts: localhost
+  # Change become to true if you are not root and if your user is not part of the docker group
+  become: false
+  vars:
+    container_count: 4
+    default_container_name: ds389vm
+    default_container_image: quay.io/389ds/ci-images:test
+    default_container_command: /sbin/init
+    default_network_name: Test389ds
+
+  tasks:
+    - name: "Create docker network {{ default_network_name }}"
+      community.docker.docker_network:
+        name: "{{ default_network_name }}"
+
+    - name: Pull default Docker image
+      community.docker.docker_image:
+        name: "{{ default_container_image }}"
+        source: pull
+
+    - name: "Create docker containers"
+      community.docker.docker_container:
+        name: "{{ item }}"
+        image: "{{ default_container_image }}"
+        privileged: true
+        hostname: "{{ item }}"
+        shm_size: 4GB
+        debug: true
+        ulimits:
+          - core:-1:-1
+        capabilities:
+          - SYS_PTRACE
+        command: "{{ default_container_command }}"
+        networks:
+          - name: "{{ default_network_name }}"
+        state: started
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+  
+    - name: "Add the docker containers to inventory"
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        ansible_connection: docker
+        ansible_user: root
+      changed_when: false
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+
+
+- hosts: ldapservers
+  become: false
+
+  tasks:
+    - name: "Install ansible and 389ds"
+      dnf:
+        name:
+          - 389-ds-base
+          - ansible
+        state: latest
