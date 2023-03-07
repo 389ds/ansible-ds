@@ -1,33 +1,34 @@
 ---
 - name: Get DS backup dir
-  import_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"
+  ansible.builtin.import_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"
 
 - name: Stat backup on server
-  stat:
+  ansible.builtin.stat:
     path: "{{ ds389_backup_dir }}/{{ ds389_backup_item }}"
   register: result_backup_stat
 
 - name: Fail on missing backup directory
-  fail: msg="Unable to find backup {{ ds389_backup_item }}"
+  ansible.builtin.fail:
+    msg: "Unable to find backup {{ ds389_backup_item }}"
   when: result_backup_stat.stat.isdir is not defined
 
 - name: Stop DS instance, if started
-  service:
+  ansible.builtin.service:
     name: dirsrv@localhost
     state: stopped
 
 - name: Restore backup
-  command:
+  ansible.builtin.command:
     argv:
       - dsctl
       - localhost
       - bak2db
       - "{{ ds389_backup_item }}"
   register: result_dsrestore
-  ignore_errors: yes
+  ignore_errors: true
 
 - name: Report error for restore operation
-  debug:
+  ansible.builtin.debug:
     msg: "{{ result_dsrestore.stderr }}"
   when: result_dsrestore is failed
-  failed_when: yes
+  failed_when: true

@@ -2,125 +2,133 @@
 # tasks file for ipabackup
 
 - name: Check for empty vars
-  fail: msg="Variable {{ item }} is empty"
+  ansible.builtin.fail:
+    msg: "Variable {{ item }} is empty"
   when: "item in vars and not vars[item]"
   with_items: "{{ ds389_backup_empty_var_checks }}"
   vars:
     ds389_backup_empty_var_checks:
-#    - ds389_backup_instance
-    - ds389_backup_controller_path
-    - ds389_backup_name_prefix
+#     - ds389_backup_instance
+      - ds389_backup_controller_path
+      - ds389_backup_name_prefix
 
 - name: Fail if ds389_backup_from_controller and ds389_backup_to_controller are set
-  fail: msg="ds389_backup_from_controller and ds389_backup_to_controller are set"
+  ansible.builtin.fail:
+    msg: "ds389_backup_from_controller and ds389_backup_to_controller are set"
   when: ds389_backup_from_controller | bool and ds389_backup_to_controller | bool
 
 - name: Get ds389_backup_dir from DS installation
-  include_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"
 
 - name: Backup DS server
-  include_tasks: "{{ role_path }}/tasks/backup.yml"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/backup.yml"
   when: state|default("present") == "present"
 
 - name: Fail for given ds389_backup_name if state is not copied, restored or absent
-  fail: msg="ds389_backup_name is given and state is not copied, restored or absent"
+  ansible.builtin.fail:
+    msg: "ds389_backup_name is given and state is not copied, restored or absent"
   when: state is not defined or
         (state != "copied" and state != "restored" and state != "absent") and
         ds389_backup_name is defined
 
 - name: Fail on missing ds389_backup_name
-  fail: msg="ds389_backup_name is not set"
+  ansible.builtin.fail:
+    msg: "ds389_backup_name is not set"
   when: (ds389_backup_name is not defined or not ds389_backup_name) and
         state is defined and
         (state == "copied" or state == "restored" or state == "absent")
 
-- block:
-  - name: Get list of all backups on IPA server
-    shell:
-      ls -1
-    args:
-      chdir: "{{ ds389_backup_dir }}/"
-    register: result_backup_find_backup_files
-
-  - name: Set ds389_backup_names using backup list
-    set_fact:
-      ds389_backup_names: "{{ result_backup_find_backup_files.stdout_lines }}"
-
+- name: Get all backup names for copy to controller
   when: state is defined and
         ((state == "copied" and ds389_backup_to_controller) or
          state == "absent") and
         ds389_backup_name is defined and ds389_backup_name == "all"
+  block:
+    - name: Get list of all backups on 389 DS server
+      ansible.builtin.shell:
+        ls -1
+      args:
+        chdir: "{{ ds389_backup_dir }}/"
+      register: result_backup_find_backup_files
+      changed_when: false
 
-- block:
-  - name: Fail on ds389_backup_name all
-    fail: msg="ds389_backup_name can not be all in this case"
-    when: ds389_backup_name is defined and ds389_backup_name == "all"
+    - name: Set ds389_backup_names using backup list
+      ansible.builtin.set_fact:
+        ds389_backup_names: "{{ result_backup_find_backup_files.stdout_lines }}"
 
-  - name: Set ds389_backup_names from ds389_backup_name string
-    set_fact:
-      ds389_backup_names: ["{{ ds389_backup_name }}"]
-    when: ds389_backup_name | type_debug != "list"
-
-  - name: Set ds389_backup_names from ds389_backup_name list
-    set_fact:
-      ds389_backup_names: "{{ ds389_backup_name }}"
-    when: ds389_backup_name | type_debug == "list"
+- name: Set ds389_backup_names from ds389_backup_name
   when: ds389_backup_names is not defined and ds389_backup_name is defined
+  block:
+    - name: Fail on ds389_backup_name all
+      ansible.builtin.fail:
+        msg: "ds389_backup_name can not be all in this case"
+      when: ds389_backup_name is defined and ds389_backup_name == "all"
+
+    - name: Set ds389_backup_names from ds389_backup_name string
+      ansible.builtin.set_fact:
+        ds389_backup_names: ["{{ ds389_backup_name }}"]
+      when: ds389_backup_name | type_debug != "list"
+
+    - name: Set ds389_backup_names from ds389_backup_name list
+      ansible.builtin.set_fact:
+        ds389_backup_names: "{{ ds389_backup_name }}"
+      when: ds389_backup_name | type_debug == "list"
 
 - name: Set empty ds389_backup_names if ds389_backup_name is not defined
-  set_fact:
+  ansible.builtin.set_fact:
     ds389_backup_names: []
   when: ds389_backup_names is not defined and ds389_backup_name is not defined
 
-- block:
-  - name: Copy backup from DS server
-    include_tasks: "{{ role_path }}/tasks/copy_backup_from_server.yml"
-    vars:
-      ds389_backup_archive_path: "{{ main_item }}"
-    with_items:
-    - "{{ ds389_backup_names }}"
-    loop_control:
-      loop_var: main_item
-    when: state is defined and state == "copied"
-
-  - name: Remove backup from DS server
-    include_tasks: "{{ role_path }}/tasks/remove_backup_from_server.yml"
-    vars:
-      ds389_backup_item: "{{ main_item }}"
-    with_items:
-    - "{{ ds389_backup_names }}"
-    loop_control:
-      loop_var: main_item
-    when: state is defined and state == "absent"
-
+- name: Process "{{ ds389_backup_names }}"
   when: state is defined and
         ((state == "copied" and ds389_backup_to_controller) or state == "absent")
+  block:
+    - name: Copy backup from DS server
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/copy_backup_from_server.yml"
+      vars:
+        ds389_backup_archive_path: "{{ main_item }}"
+      with_items:
+        - "{{ ds389_backup_names }}"
+      loop_control:
+        loop_var: main_item
+      when: state is defined and state == "copied"
+
+    - name: Remove backup from DS server
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/remove_backup_from_server.yml"
+      vars:
+        ds389_backup_item: "{{ main_item }}"
+      with_items:
+        - "{{ ds389_backup_names }}"
+      loop_control:
+        loop_var: main_item
+      when: state is defined and state == "absent"
 
 # Fail with more than one entry in ds389_backup_names for copy to sever and
 # restore.
 
 - name: Fail to copy or restore more than one backup on the server
-  fail: msg="Only one backup can be copied to the server or restored"
+  ansible.builtin.fail:
+    msg: "Only one backup can be copied to the server or restored"
   when: state is defined and (state == "copied" or state == "restored") and
         ds389_backup_from_controller | bool and ds389_backup_names | length != 1
 
 # Use only first item in ds389_backup_names for copy to server and for restore.
 
-- block:
-  - name: Copy backup to server
-    include_tasks: "{{ role_path }}/tasks/copy_backup_to_server.yml"
-
-  - name: Restore DS server backup
-    include_tasks: "{{ role_path }}/tasks/restore.yml"
-    when: state|default("present") == "restored"
-
-  vars:
-    ds389_backup_archive_path: "{{ ds389_backup_names[0] }}"
+- name: Process "{{ ds389_backup_names[0] }}"
   when: ds389_backup_from_controller or
         (state|default("present") == "copied" and not ds389_backup_to_controller)
+  vars:
+    ds389_backup_archive_path: "{{ ds389_backup_names[0] }}"
+  block:
+    - name: Copy backup to server
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/copy_backup_to_server.yml"
+
+    - name: Restore DS server backup
+      ansible.builtin.include_tasks: "{{ role_path }}/tasks/restore.yml"
+      when: state|default("present") == "restored"
 
 - name: Restore DS server
-  include_tasks: "{{ role_path }}/tasks/restore.yml"
+  ansible.builtin.include_tasks: "{{ role_path }}/tasks/restore.yml"
   vars:
     ds389_backup_item: "{{ ds389_backup_names[0] | basename }}"
   when: not ds389_backup_from_controller and

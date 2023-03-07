@@ -47,7 +47,7 @@ lint:
 github_pylint: lint
 
 github_anlint:
-	cd $(HOME)/.ansible && ansible-lint
+	cd $(HOME)/.ansible && ansible-lint -c $(PWD)/.ansible-lint
 
 github_utest:
 	pytest-3 -vvvvv ansible_collections/$N/$M/tests
