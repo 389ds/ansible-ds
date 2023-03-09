@@ -189,20 +189,31 @@ class PlaybookTestEnv:
         if self.skip:
             pytest.skip('Failed to create playbook test environment (conftest.py)')
             return
-        pb_name = f'{playbook.name}'
+        cmd = [ IniFileConfig.ANSIBLE_PLAYBOOK, ]
         if self.debugging:
-            cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, '-vvvvv', pb_name)
-        else:
-            cmd = (IniFileConfig.ANSIBLE_PLAYBOOK, pb_name)
+            cmd.append( '-vvvvv' )
+        cmd_dir = self.pbdir
+        pb_fullname = str(playbook)
+        pb_name = f'{playbook.name}'
+        if '/inventory/' in pb_fullname:
+            # Lets run directly the playbook from the test directory
+            cmd_dir, pb_name = os.path.split(pb_fullname)
+            # Add inventory and vault options
+            cmd = cmd + [ '-i', 'inventory', '--vault-password-file', f'{cmd_dir}/../vault.pw' ]
+        cmd.append(pb_name)
         PlaybookTestEnv._removeAllInstances()
-        result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=self.pbdir) # pylint: disable=subprocess-run-check
+        result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=cmd_dir) # pylint: disable=subprocess-run-check
         testitem.add_report_section("call", "stdout", result.stdout)
         testitem.add_report_section("call", "stderr", result.stderr)
-        testitem.add_report_section("call", "cwd", self.pbdir)
+        testitem.add_report_section("call", "cwd", cmd_dir)
         if not self.debugging:
             PlaybookTestEnv._removeAllInstances()
         if result.returncode != 0:
             self.testfailed = True
+            print(f'ERROR: Command {cmd} run in {cmd_dir} failed with return code {result.returncode}', file=sys.stderr)
+            print(f'STDOUT is: {result.stdout}', file=sys.stderr)
+            print(f'STDERR is: {result.stderr}', file=sys.stderr)
+
             raise AssertionError(f"ansible-playbook failed: return code is {result.returncode}")
 
     def cleanup(self):

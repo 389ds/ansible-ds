@@ -29,7 +29,6 @@ WORKSPACE_DIR = str(Path(__file__).parent.parent)
 
 sys.path += ( f"{WORKSPACE_DIR}/ansible_collections/ds389/ansible_ds/plugins", )
 from module_utils.ds389_entities import ConfigRoot
-from module_utils.ds389_util import setLogger
 
 class AbstractAnsibleDsParser(ABC):
     """Abstract class to avoid pylint error about unused arguments."""
@@ -128,7 +127,6 @@ class Doc(AbstractAnsibleDsParser):
         self.start_list = None
         self.end_list = None
         self.suboptions = "suboptions"
-        setLogger(__file__, None)
 
     def print(self, key, item, tab, skip=False):
         if item is None:

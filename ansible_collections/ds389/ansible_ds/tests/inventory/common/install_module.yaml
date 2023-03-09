@@ -1,0 +1,26 @@
+---
+- hosts: localhost
+  # Change become to true if you are not root and if your user is not part of the docker group
+  become: false
+
+  tasks:
+    - name: "Add the {{ item }} container to inventory"
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        ansible_connection: docker
+        ansible_user: root
+      changed_when: false
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+
+- hosts: ldapservers
+  become: false
+
+  tasks:
+    - name: Copy ds389 ansible collection
+      ansible.builtin.copy:
+        src: ~/.ansible/collections/ansible_collections/ds389/ansible_ds
+        dest: ~/.ansible/collections/ansible_collections/ds389
+        mode: preserve
+        directory_mode: 0751
+        force: true

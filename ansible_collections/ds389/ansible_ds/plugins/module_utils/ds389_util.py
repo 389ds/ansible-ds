@@ -40,12 +40,12 @@ import json
 import glob
 import ldif
 import ldap
-import logging
 import yaml
+import inspect
 from dataclasses import dataclass
+from datetime import datetime
 from lib389 import DirSrv
 from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
-from lib389.cli_base import setup_script_logger
 from ldap.ldapobject import SimpleLDAPObject
 
 # dse.ldif important object classes
@@ -76,38 +76,62 @@ IGNOREATTRS = ( 'creatorsName', 'modifiersName',
                 'nsslapd-pluginvendor', 'nsslapd-pluginversion',
                 'nsstate',
               )
-log = None
 
-def setLogger(name, verbose=0):
-    global log
-    """
-        Reset the python logging system for STDOUT, and attach a new
-        console logger with cli expected formatting.
-    
-        :param name: Name of the logger
-        :type name: str
-        :param verbose: Enable verbose format of messages
-        :type verbose: bool
-        :return: logging.logger
-    """
-    root = logging.getLogger()
-    log = logging.getLogger(name)
-    log_handler = logging.StreamHandler(sys.stderr)
 
-    if verbose:
-        verbose = logging.DEBUG
-    else:
-        verbose = logging.INFO
-    log.setLevel(verbose)
-    log_format = '%(levelname)s: %(message)s'
+class MyLogger:
+    def __init__(self, name, logfd=None):
+        home = os.getenv('HOME')
+        self.name = name
+        if logfd:
+            self.logfd = logfd
+        else:
+            try:
+                self.logfd = open(f"{home}/.ansible_ds.log", "w")
+            except IOException:
+                self.logfd = sys.stderr
 
-    log_handler.setFormatter(logging.Formatter(log_format))
-    root.addHandler(log_handler)
+    def _fmt(self, levelinfo, msg, args):
+      if args:
+        msg = msg.format(args)
+      now = datetime.now().time()
+      callerframe = inspect.getouterframes(inspect.currentframe())[2][0]
+      lineno = inspect.getlineno(callerframe)
+      longfilename = inspect.getfile(callerframe)
+      callerframe = None
+      shortfilename = longfilename.split('/')[-1]
+      logmsg=f'[{now}] {shortfilename}:{lineno} - {levelinfo}: {msg}\n'
+      self.logfd.write(logmsg)
 
-def getLogger():
-    global log
-    return log
+    def info(self, msg, *args):
+        self._fmt("INFO", msg, args)
+        
+    def debug(self, msg, *args):
+        self._fmt("DEBUG", msg, args)
 
+    def warn(self, msg, *args):
+        self._fmt("WARNING", msg, args)
+
+    def warning(self, msg, *args):
+        self._fmt("WARNING", msg, args)
+
+    def fatal(self, msg, *args):
+        self._fmt("FATAL", msg, args)
+
+    def exception(self, msg, *args):
+        self._fmt("EXCEPTION", msg, args)
+
+    def getChild(self, name):
+        return MyLogger(name, logfd=self.logfd)
+
+    def setLevel(self, level):
+        pass
+
+    def addHandler(self, handler):
+        pass
+
+
+# Initialize logging system
+log = MyLogger("ds389.ansible_ds")
 
 def dictlist2dict(dictlist):
     if isinstance(dictlist, dict):

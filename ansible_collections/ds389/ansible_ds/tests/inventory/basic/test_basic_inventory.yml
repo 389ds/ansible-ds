@@ -1,0 +1,13 @@
+---
+- name: Creates the target host docker containers
+  ansible.builtin.import_playbook: ../common/create_vms.yml
+
+- name: Install ansible_ds module on the target hosts
+  ansible.builtin.import_playbook: ../common/install_module.yaml
+
+- name: Do the job - Create 389ds instance on the containers
+  ansible.builtin.import_playbook: create_ds_instances.yml
+  
+- name: Cleanup - Removes target hosts containers
+  ansible.builtin.import_playbook: ../common/destroy_vms.yml
+

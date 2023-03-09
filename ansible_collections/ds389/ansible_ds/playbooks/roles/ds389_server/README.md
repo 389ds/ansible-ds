@@ -70,7 +70,7 @@ Example playbook to create an instance of the 389 DS server locally:
     # In real deployment it should be set by using:
     #  ansible-vault encrypt_string --stdin-name ds389_server_rootpw
     # i.e:
-    #ds389_server_rootpw: !vault |
+    # ds389_server_rootpw: !vault |
     #     $ANSIBLE_VAULT;1.1;AES256
     #     65386361623432656133343230333636626164353230623935616632636361356265623530366232
     #     6662333634333066613430616461623433633766333936330a616239636266666465343235316666

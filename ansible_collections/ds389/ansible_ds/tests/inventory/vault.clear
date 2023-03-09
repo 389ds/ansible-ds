@@ -1,0 +1,12 @@
+---
+# This is the clear version of the vault file which should be 
+# - copied to inventory/testds389_vault.yaml
+# - then encrypted by using: 
+#     ansible-vault encrypt --ask-vault-password --vault-id testds389_vault testds389_vault.yaml
+all:
+  children:
+    ldapservers:
+      vars:
+        vault_ds389_rootpw: !unsafe rootdnpw
+        vault_ds389_replman: !unsafe replmanpw
+

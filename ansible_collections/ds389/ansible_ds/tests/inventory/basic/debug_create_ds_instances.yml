@@ -1,0 +1,36 @@
+---
+# This playbook install ds389 instances on ldapservers
+# and get back the ansible_ds module in case of errors
+#
+- hosts: localhost
+  become: false
+
+  tasks:
+    - name: Add the dockers containers to inventory
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        ansible_connection: docker
+        ansible_user: root
+      changed_when: false
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+
+- hosts: ldapservers
+  become: false
+
+  tasks:
+    - block:
+        - name: "Remove log file"
+          ansible.builtin.file:
+            path: "{{ playbook_dir }}/{{ inventory_hostname }}.log"
+            state: absent
+
+        absent
+        - name: "Create 389ds instance"
+          ds389.ansible_ds.ds389_manage:
+      rescue:
+        - name: "get log files"
+          ansible.builtin.fetch:
+            src: /root/.ansible_ds.log
+            dest: "{{ playbook_dir }}/{{ inventory_hostname }}.log"
+            flat: yes

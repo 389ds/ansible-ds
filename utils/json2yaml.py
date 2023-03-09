@@ -70,7 +70,7 @@ def hook(_data):
         # Handle fact result
         if 'my_useful_info' in _data:
             return hook(_data['my_useful_info'])
-    return data
+    return _data
 
 
 F_IN_NAME = sys.argv[1]

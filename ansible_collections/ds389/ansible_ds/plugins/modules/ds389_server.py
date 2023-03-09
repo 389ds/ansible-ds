@@ -165,15 +165,13 @@ import argparse
 # import the collection module_utils modules.
 if __name__ == "__main__":
     sys.path += [str(Path(__file__).parent.parent)]
-    from module_utils.ds389_entities import ConfigRoot
-    from module_utils.ds389_util import setLogger, getLogger, log
-    from module_utils.ds389_util import setLogger, getLogger, log
     from module_utils.ds389_entities_options import CONTENT_OPTIONS
+    from module_utils.ds389_entities import ConfigRoot
+    from module_utils.ds389_util import log
 else:
-    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_entities import ConfigRoot
-    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_util import setLogger, getLogger, log
     from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_entities_options import CONTENT_OPTIONS
-
+    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_entities import ConfigRoot
+    from ansible_collections.ds389.ansible_ds.plugins.module_utils.ds389_util import log
 
 
 def run_module():
@@ -204,13 +202,6 @@ def run_module():
         mutually_exclusive=[ ('path', 'content'), ],
         supports_check_mode=True
     )
-
-    verbose=0
-    if 'DEBUGGING' in os.environ:
-        verbose = 5
-    setLogger(__file__, verbose)
-    global log
-    log = getLogger()
 
     path = module.params['path']
     content = module.params['content']
@@ -250,6 +241,7 @@ def run_module():
 
 
 def main():
+    log.info(f"Running {__file__}")
     run_module()
 
 

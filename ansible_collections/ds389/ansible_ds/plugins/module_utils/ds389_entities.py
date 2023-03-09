@@ -39,6 +39,7 @@ requirements:
 '''
 
 import os
+import io
 import sys
 import re
 import json
@@ -59,12 +60,10 @@ from lib389._constants import ReplicaRole
 from lib389.replica import Replicas, Replica, Changelog
 
 from configparser import ConfigParser
-from .ds389_util import NormalizedDict, DSE, DiffResult, getLogger, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp
+from .ds389_util import NormalizedDict, DSE, DiffResult, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp, log
 
 ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
-
-log = None
 
 def isTrue(val):
     return val is True or val.lower() in ("true", "started")
@@ -301,8 +300,6 @@ class MyConfigObject():
     )
 
     def __init__(self, name, parent=None):
-        global log
-        log = getLogger()
         self.name = name
         self.state = "present"
         for child in self.CHILDREN.keys():
@@ -1397,6 +1394,7 @@ class ConfigRoot(MyConfigObject):
 
     def from_path(path):
         ### Decode and validate parameters from yaml or json file. Returns a ConfigRoot object
+        log.info(f'Decoding parameters from file {path}')
         if path.endswith('.yaml') or path.endswith('.yml'):
             with open(path, 'r') as f:
                 content = yaml.safe_load(f)
@@ -1408,14 +1406,17 @@ class ConfigRoot(MyConfigObject):
         return host
 
     def from_stdin():
+        data = sys.stdin.read()
+        log.info(f'Decoding parameters from STDIN: {data}')
         ### Decode and validate parameters from stdin (interpreted as a json file. Returns a ConfigRoot object
-        content = json.load(sys.stdin)
+        content = json.load(io.StringIO(data))
         host = ConfigRoot()
         host.set(content)
         return host
 
     def from_content(content):
         ### Validate parameters from raw dict object. Returns a ConfigRoot object
+        log.info(f'Decoding parameters from content {content}')
         host = ConfigRoot()
         host.set(content)
         return host

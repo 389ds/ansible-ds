@@ -1,0 +1,13 @@
+---
+- hosts: localhost
+  # Change become to true if you are not root and if your user is not part of the docker group
+  become: false
+
+  tasks:
+    - name: "Remove docker containers"
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+      with_items:
+        - "{{ groups['ldapservers'] }}"
+
