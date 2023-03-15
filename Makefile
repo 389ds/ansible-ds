@@ -46,8 +46,8 @@ lint:
 
 github_pylint: lint
 
-github_anlint:
-	cd $(HOME)/.ansible && ansible-lint -c $(PWD)/.ansible-lint
+github_anlint: install
+	ANSIBLE_COLLECTIONS_PATH=$(HOME)/.ansible/collections ansible-lint
 
 github_utest:
 	pytest-3 -vvvvv ansible_collections/$N/$M/tests
@@ -63,7 +63,7 @@ $(SRCBASE)/plugins/module_utils/ds389_entities_options.py: utils/gendoc.py $(SRC
 	python ./utils/gendoc.py spec > $(SRCBASE)/plugins/module_utils/ds389_entities_options.py.tmp
 	mv -f $(SRCBASE)/plugins/module_utils/ds389_entities_options.py.tmp $(SRCBASE)/plugins/module_utils/ds389_entities_options.py
 
-$(SRCBASE)/playbooks/roles/ds389_server/README.md: utils/gendoc.py $(SRCBASE)/playbooks/roles/ds389_server/README.tmpl $(SRCBASE)/playbooks/*.yml  $(SRCBASE)/plugins/module_utils/ds389_entities.py
+$(SRCBASE)/playbooks/roles/ds389_server/README.md: utils/gendoc.py $(SRCBASE)/playbooks/*.yml  $(SRCBASE)/plugins/module_utils/ds389_entities.py
 	python ./utils/gendoc.py readme
 
 # Create an ini file that could be customized to run the unit_test

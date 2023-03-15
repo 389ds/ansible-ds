@@ -24,8 +24,14 @@ from lib389.properties import SER_SERVERID_PROP
 
 DIRECTORY_MANAGER_PASSWORD = "secret12"
 
+common_args = {
+    "ansible_verbosity" : 0,
+    "ansible_check_mode" : False,
+}
+
+
 config_2i={
-    "instances": [
+    "ds389_server_instances": [
         {
             "name": "i1",
             "backends": [
@@ -57,7 +63,7 @@ config_2i={
             "state": "present",
         },
     ],
-    "prefix": os.getenv("PREFIX",""),
+    "ds389_prefix": os.getenv("PREFIX",""),
     "state": "present"
 }
 
@@ -80,7 +86,7 @@ def test_ds389_create_is_idempotent(ansibletest):
         Result 7: No error
     """
 
-    log = ansibletest.getLog(__name__)
+    log = ansibletest.get_log(__name__)
     # Step 1: Ensure that i1 and i2 instances does not exist
     instances=[]
     for serverid in ( "i1", "i2" ):
@@ -90,8 +96,8 @@ def test_ds389_create_is_idempotent(ansibletest):
         if srv.exists():
             srv.delete()
     # Step 2: Run ds389_server module
-    args = { "content" : config_2i }
-    result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
+    args = { "ds389" : { **config_2i, **common_args }  }
+    result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'result={result}')
     # Step 3: Verify that i1 ande i2 instances exists.
     for srv in instances:
@@ -100,7 +106,7 @@ def test_ds389_create_is_idempotent(ansibletest):
     # Step 4: Verify changed is true
     assert result['changed'] is True
     # Step 5: Run again ds389_server module
-    result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
+    result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'second result={result}')
     # Step 6: Verify changed is false
     assert result['changed'] is False

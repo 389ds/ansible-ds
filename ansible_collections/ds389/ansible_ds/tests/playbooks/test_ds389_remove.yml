@@ -1,73 +1,39 @@
 ---
-- hosts: localhost
+- name: Creates instances i1 and i2
+  import_playbook: test_ds389_create.yml
+
+- name: Test 389ds instance removal
+  hosts: localhost
 
   tasks:
-    - name: load encrypted variables
-      include_vars: "vault.yml"
+    - name: Load encrypted variables
+      ansible.builtin.include_vars: "vault.yml"
 
-- name: Creates instances i1 and i2
-  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/ds389_create.yml
-  vars:
-    #ds389_server_rootpw: is imported from vault.yml
-    ds389_server_instances:
-        -
-            name: i1
-            rootpw: "{{ds389_server_rootpw}}"
-            port: 38901
-            secure_port: 63601
-            backends:
-                -
-                    name: "userroot"
-                    suffix: "dc=example,dc=com"
-                -
-                    name: "second"
-                    suffix: "dc=another example,dc=com"
-                -
-                    name: "peoplesubsuffix"
-                    suffix: "o=people,dc=example,dc=com"
-        -
+    - name: "Remove i1 389ds instance"
+      ds389.ansible_ds.ds389_server:
+        state: updated
+        ds389_server_instances:
+          -
             name: i2
-            rootpw: "{{ds389_server_rootpw}}"
+            rootpw: "{{ ds389_server_rootpw }}"
             port: 38902
             secure_port: 63602
             backends:
-                -
-                    name: "userroot"
-                    suffix: "dc=example,dc=com"
-                -
-                    name: "second"
-                    suffix: "dc=another example,dc=com"
-                -
-                    name: "peoplesubsuffix"
-                    suffix: "o=people,dc=example,dc=com"
-
-- name: Run ds389.ansible_ds.ds389_remove.yml
-  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/ds389_remove.yml
-  vars:
-    ds389_server_instances:
-            -
-                name: i1
-                state: absent
-
-- name: Get ds389_server facts
-  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/gather_dsinst_info.yml
-
-- name: Check result
-  hosts: localhost
-  tasks:
-    - ansible.builtin.debug:
-        msg: play2
-
-    - ansible.builtin.assert:
-        that:
-          - "{{ 'i1' not in ds389_server_instances|map(attribute='name')|list }}"
-        fail_msg: "instance i1 still exists."
-        success_msg: "instance i1 does no more exist."
+              -
+                name: "userroot"
+                suffix: "dc=example,dc=com"
+              -
+                name: "second"
+                suffix: "dc=another example,dc=com"
+              -
+                name: "peoplesubsuffix"
+                suffix: "o=people,dc=example,dc=com"
 
 
-    - ansible.builtin.assert:
-        that:
-          - "{{ 'i2' in ds389_server_instances|map(attribute='name')|list }}"
-        fail_msg: "instance i2 does no more exist."
-        success_msg: "instance i2 still exists."
+    - name: Test that i1 instance does no more exist
+      ansible.builtin.command: dsctl i1 status
+      register: dsctl_cmd
+      failed_when: dsctl_cmd.rc != 1
 
+    - name: Test that i2 instance exists
+      ansible.builtin.command: dsctl i2 status

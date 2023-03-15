@@ -41,7 +41,7 @@ import glob
 import ldif
 import ldap
 import yaml
-import inspect
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from lib389 import DirSrv
@@ -78,60 +78,27 @@ IGNOREATTRS = ( 'creatorsName', 'modifiersName',
               )
 
 
-class MyLogger:
-    def __init__(self, name, logfd=None):
-        home = os.getenv('HOME')
-        self.name = name
-        if logfd:
-            self.logfd = logfd
-        else:
-            try:
-                self.logfd = open(f"{home}/.ansible_ds.log", "w")
-            except IOException:
-                self.logfd = sys.stderr
-
-    def _fmt(self, levelinfo, msg, args):
-      if args:
-        msg = msg.format(args)
-      now = datetime.now().time()
-      callerframe = inspect.getouterframes(inspect.currentframe())[2][0]
-      lineno = inspect.getlineno(callerframe)
-      longfilename = inspect.getfile(callerframe)
-      callerframe = None
-      shortfilename = longfilename.split('/')[-1]
-      logmsg=f'[{now}] {shortfilename}:{lineno} - {levelinfo}: {msg}\n'
-      self.logfd.write(logmsg)
-
-    def info(self, msg, *args):
-        self._fmt("INFO", msg, args)
-        
-    def debug(self, msg, *args):
-        self._fmt("DEBUG", msg, args)
-
-    def warn(self, msg, *args):
-        self._fmt("WARNING", msg, args)
-
-    def warning(self, msg, *args):
-        self._fmt("WARNING", msg, args)
-
-    def fatal(self, msg, *args):
-        self._fmt("FATAL", msg, args)
-
-    def exception(self, msg, *args):
-        self._fmt("EXCEPTION", msg, args)
-
-    def getChild(self, name):
-        return MyLogger(name, logfd=self.logfd)
-
-    def setLevel(self, level):
-        pass
-
-    def addHandler(self, handler):
-        pass
-
-
 # Initialize logging system
-log = MyLogger("ds389.ansible_ds")
+_log = None
+
+
+def init_log(name, stream=sys.stderr):
+    global _log
+    _log = logging.getLogger(name)
+    logh = logging.StreamHandler(stream)
+    fmt = '[%(asctime)s] %(levelname)s - %(filename)s[%(lineno)d]: %(message)s'
+    datefmt = '%Y/%m/%d %H:%M:%S %z'
+    logh.setFormatter(logging.Formatter(fmt, datefmt))
+    _log.addHandler(logh)
+    elogh = logging.StreamHandler(sys.stderr)
+    elogh.setLevel(logging.ERROR)
+    elogh.setFormatter(logging.Formatter(fmt, datefmt))
+    _log.addHandler(elogh)
+    _log.setLevel(logging.ERROR)
+
+def get_log():
+    return _log
+
 
 def dictlist2dict(dictlist):
     if isinstance(dictlist, dict):
@@ -206,7 +173,7 @@ class NormalizedDict(dict):
                 nkey = normalizeDN(key)
             for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
                 nkey = nkey.replace(k, v);
-            #log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
+            #_log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
         return nkey
 
     def get(self, key):

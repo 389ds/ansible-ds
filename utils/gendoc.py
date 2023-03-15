@@ -28,29 +28,26 @@ from inspect import cleandoc
 WORKSPACE_DIR = str(Path(__file__).parent.parent)
 
 sys.path += ( f"{WORKSPACE_DIR}/ansible_collections/ds389/ansible_ds/plugins", )
+from module_utils.ds389_util import init_log
 from module_utils.ds389_entities import ConfigRoot
 
 class AbstractAnsibleDsParser(ABC):
     """Abstract class to avoid pylint error about unused arguments."""
 
     @abstractmethod
-    def printItem(self, item, tab):
+    def print_item(self, item, tab):
         """Print a line about single data."""
 
     @abstractmethod
-    def printChoices(self, choices, tab):
+    def print_choices(self, choices, tab):
         """Print lines to describe a choice."""
 
     @abstractmethod
-    def printMeta(self, entity, tab):
+    def print_meta(self, entity, tab):
         """Print lines about entity metadata."""
 
-    #def sortOptions(self, keys):
-    #def printActionOption(self, option, tab):
-    #def printActionEntity(self, name, nclass, tab):
-
     @abstractmethod
-    def printMsg(self, msg):
+    def print_msg(self, msg):
         """Print a single data."""
 
     @abstractmethod
@@ -58,11 +55,7 @@ class AbstractAnsibleDsParser(ABC):
         """Print a line about key+value."""
 
     @abstractmethod
-    def sortOptions(self, keys):
-        """Sort helper."""
-
-    @abstractmethod
-    def walkEntity(self, oclass, tab, action_option="default", action_entity="default"):
+    def walk_entity(self, oclass, tab, action_option="default", action_entity="default"):
         """The dsentities_options.py entity parser."""
 
     @abstractmethod
@@ -135,40 +128,22 @@ class Doc(AbstractAnsibleDsParser):
         else:
             print(f"{tab}{key}: {item}")
 
-    def printItem(self, item, tab):
+    def print_item(self, item, tab):
         """Print a line about single data."""
         if item:
             print(f"{tab}{item}")
 
-    def printChoices(self, choices, tab):
+    def print_choices(self, choices, tab):
         for val in choices:
             print(f"{tab} - {val}")
 
-    def printMsg(self, msg):
+    def print_msg(self, msg):
         """Print a single data."""
 
-    def printMeta(self, entity, tab):
+    def print_meta(self, entity, tab):
         """Print lines about entity metadata."""
 
-    def sortOptions(self, keys):
-        """Sort helper."""
-
-        def sortweight(option):
-            if option.name in ('name', 'state'):
-                res = 'A'
-            else:
-                res = 'B'
-            if option.required:
-                res += 'C'
-            else:
-                res += 'D'
-            res += option.name
-            return res
-
-        sorted_list = sorted( [ (sortweight(key), key) for key in keys])
-        return [ k[1] for k in sorted_list ]
-
-    def printActionOption(self, option, tab):
+    def print_action_option(self, option, tab):
         """Hanles action options."""
 
         tab1 = tab + self.tab
@@ -182,13 +157,13 @@ class Doc(AbstractAnsibleDsParser):
         if option.choice:
             self.print("type", "str", tab1)
             self.print("choices", self.start_list, tab1)
-            self.printChoices(option.choice, tab2)
-            self.printItem(self.end_list, tab1)
+            self.print_choices(option.choice, tab2)
+            self.print_item(self.end_list, tab1)
         else:
             self.print("type", option.type, tab1)
-        self.printItem(self.end_dict, tab)
+        self.print_item(self.end_dict, tab)
 
-    def printActionEntity(self, name, nclass, tab):
+    def print_action_entity(self, name, nclass, tab):
         """Handles action entity."""
         tab1 = tab + self.tab
         tab2 = tab1 + self.tab
@@ -207,20 +182,20 @@ class Doc(AbstractAnsibleDsParser):
         self.print("description", f"{desc}'s name.", tab3)
         self.print("type", "str", tab3)
         self.print("required", "True", tab3)
-        self.printItem(self.end_dict, tab2)
-        self.walkEntity(nclass, tab2)
-        self.printItem(self.end_dict, tab1)
-        self.printItem(self.end_dict, tab)
+        self.print_item(self.end_dict, tab2)
+        self.walk_entity(nclass, tab2)
+        self.print_item(self.end_dict, tab1)
+        self.print_item(self.end_dict, tab)
 
-    def walkEntity(self, oclass, tab, action_option="default", action_entity="default"):
+    def walk_entity(self, oclass, tab, action_option="default", action_entity="default"):
         tab1 = tab + self.tab
         tab2 = tab1 + self.tab
         if action_option == "default":
             # set default action
-            action_option = self.printActionOption
+            action_option = self.print_action_option
         if action_entity == "default":
             # set default action
-            action_entity = self.printActionEntity
+            action_entity = self.print_action_entity
         if action_option == "None":
             # set no action
             action_option = None
@@ -229,19 +204,19 @@ class Doc(AbstractAnsibleDsParser):
             action_entity = None
         entity = oclass(name='foo')
         if action_option:
-            for option in self.sortOptions(entity.OPTIONS):
+            for option in sorted(entity.OPTIONS):
                 action_option(option, tab)
         for key in sorted(entity.CHILDREN.keys()):
             nclass = entity.CHILDREN[key]
             if action_entity:
                 action_entity(key, nclass, tab)
             else:
-                self.walkEntity(nclass, tab2, action_option=action_option, action_entity=action_entity)
-        self.printMeta(entity, tab)
+                self.walk_entity(nclass, tab2, action_option=action_option, action_entity=action_entity)
+        self.print_meta(entity, tab)
 
     def generate(self, tab):
         print(cleandoc(self.header))
-        self.walkEntity(ConfigRoot, tab + self.tab)
+        self.walk_entity(ConfigRoot, tab + self.tab)
         print(cleandoc(self.footer))
 
 
@@ -291,11 +266,11 @@ CONTENT_OPTIONS = {"""
         else:
             print(f"{tab}'{key}': '{item}',")
 
-    def printChoices(self, choices, tab):
+    def print_choices(self, choices, tab):
         for val in choices:
             print(f"{tab}'{val}',")
 
-    def printMeta(self, entity, tab):
+    def print_meta(self, entity, tab):
         tab1 = tab + self.tab
         for key,data in entity.OPTIONS_META.items():
             self.print(key, "[", tab)
@@ -315,7 +290,7 @@ class Readme:
             for line in file:
                 fout.write(line)
 
-    def parseLine(self, line, fout):
+    def parse_line(self, line, fout):
         """Parse Readme template line and expands the varaible."""
         res = re.match('@@@INSERT *([^ ]*)', line)
         if res:
@@ -333,7 +308,7 @@ class Readme:
             with open(path, 'r', encoding=self.encoding) as fin:
                 with open(path.replace('tmpl', 'md'), 'w', encoding=self.encoding) as fout:
                     for line in fin:
-                        self.parseLine(line, fout)
+                        self.parse_line(line, fout)
 
 
 class Desc(Doc):
@@ -350,52 +325,53 @@ class Desc(Doc):
         self.fout = fout
         self.silent = False
 
-    def printMsg(self, msg):
+    def print_msg(self, msg):
         """Print a single data."""
         if not self.silent or self.fout == sys.stdout:
             print(msg, file=self.fout)
 
-    def printEntity(self, name, nclass, tab):
+    def print_entity(self, name, nclass, tab):
         """Print an entity."""
         tab1 = tab + self.tab
         tab2 = tab1 + self.tab
-        self.printMsg(f"{tab}- {name}: A list of {nclass}")
-        self.walkEntity(nclass, tab2, action_option=None, action_entity=self.printEntity)
+        self.print_msg(f"{tab}- {name}: A list of {nclass}")
+        self.walk_entity(nclass, tab2, action_option=None, action_entity=self.print_entity)
 
-    def printEntityHeader(self, _name, nclass, tab):
+    def print_entity_header(self, _name, nclass, tab):
         """Print an entity header callback."""
         tab1 = tab + self.tab
         tab2 = tab1 + self.tab
         self.silent = False
-        self.printMsg(f"\n## {Desc.classname(nclass)}")
-        self.printMsg("| Option | Required | Type | Description | Comment |")
-        self.printMsg("| - | -  | -  | -  | -  |")
-        self.walkEntity(nclass, tab2, action_option=self.printOptions, action_entity=self.printEntityHeader)
+        self.print_msg(f"\n## {Desc.classname(nclass)}")
+        self.print_msg("| Option | Required | Type | Description | Comment |")
+        self.print_msg("| - | -  | -  | -  | -  |")
+        self.walk_entity(nclass, tab2, action_option=self.print_options, action_entity=self.print_entity_header)
 
-    def printOptions(self, option, _tab):
+    def print_options(self, option, _tab):
         """Print an option callback."""
         comment = ""
         if option.choice:
             comment += f"Value may be one of: {option.choice}. "
         if option.vdef:
             comment += f"Default value is: {option.vdef}."
-        self.printMsg(f"| {option.name} | {option.required} | {option.type} | {option.desc} | {comment} |")
+        self.print_msg(f"| {option.name} | {option.required} | {option.type} | {option.desc} | {comment} |")
 
     def generate(self, tab):
         """Generate ansible option doc from module classes."""
         self.silent = True
-        self.printMsg("# Entities tree\n - Root")
+        self.print_msg("# Entities tree\n - Root")
         self.silent = False
-        self.walkEntity(ConfigRoot, tab + self.tab, action_option=None, action_entity=self.printEntity)
-        self.printMsg("\n# Options per entities")
+        self.walk_entity(ConfigRoot, tab + self.tab, action_option=None, action_entity=self.print_entity)
+        self.print_msg("\n# Options per entities")
         self.silent = True
-        self.printMsg("## Root")
-        self.printMsg("| Option | Required | Type | Description | Comment |")
-        self.printMsg("| - | - | - | - | - |")
-        self.walkEntity(ConfigRoot, tab + self.tab, action_option=self.printOptions, action_entity=self.printEntityHeader)
+        self.print_msg("## Root")
+        self.print_msg("| Option | Required | Type | Description | Comment |")
+        self.print_msg("| - | - | - | - | - |")
+        self.walk_entity(ConfigRoot, tab + self.tab, action_option=self.print_options, action_entity=self.print_entity_header)
 
 
 
+init_log('gendoc')
 if "doc" in sys.argv:
     Doc().generate("")
 elif "spec" in sys.argv:

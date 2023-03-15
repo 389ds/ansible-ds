@@ -8,6 +8,9 @@
 # --- END COPYRIGHT BLOCK ---
 #
 
+"""This module provides utility classes and function for handling ds389 entities."""
+#pylint: disable=too-many-lines
+
 DOCUMENTATION = r'''
 ---
 module: ds389_entities
@@ -21,7 +24,7 @@ description:
     - Option class:           class handling ansible-ds parameters for each ConfigObject
     - DSEOption class:        class handling the Option associated with ds389 parameters that are in dse.ldif
     - ConfigOption class:     class handling the Option associated with ds389 parameters that are in ds389_create template file
-    - SpecialOption class:    class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
+    - SpecialOption class:    class handling special cases like ansible specific parameterss ( like 'state') or the ds389_prefix
     - OptionAction class:     utility class used to perform action on an Option
     - MyConfigObject class:     the generic class for ds389 entities
     - ConfigRoot class:         the MyConfigObject class associated with the root entity: (local host)
@@ -60,10 +63,14 @@ from lib389._constants import ReplicaRole
 from lib389.replica import Replicas, Replica, Changelog
 
 from configparser import ConfigParser
-from .ds389_util import NormalizedDict, DSE, DiffResult, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp, log
+from .ds389_util import NormalizedDict, DSE, DiffResult, add_s, delete_s, modify_s, dictlist2dict, Entry, LdapOp, get_log
 
 ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
+
+INSTANCES = 'ds389_server_instances'
+AGMTS = 'ds389_agmts'
+PREFIX = 'ds389_prefix'
 
 def isTrue(val):
     return val is True or val.lower() in ("true", "started")
@@ -98,30 +105,30 @@ def _is_password_ignored(inst, action):
     if dirsrv.sslport:
         uri = f"ldaps://{ensure_str(dirsrv.host)}:{dirsrv.sslport}"
         try:
-            log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldaps.")
+            get_log().debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldaps.")
             dirsrv.open(uri=f"ldaps://{ensure_str(dirsrv.host)}:{dirsrv.sslport}")
-            log.debug(f"Success ==> password did not changed.")
+            get_log().debug(f"Success ==> password did not changed.")
             #log.info('Exiting _is_password_ignored returning True because ldaps bind is successful.')
             return True
         except ldap.LDAPError as e:
-            log.debug(f"Failed ==> error is {e}.")
+            get_log().debug(f"Failed ==> error is {e}.")
     try:
-        log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap with starttls.")
+        get_log().debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap with starttls.")
         dirsrv.open(uri=f"ldap://{ensure_str(dirsrv.host)}:{dirsrv.port}", starttls=True)
-        log.debug(f"Success ==> password did not changed.")
+        get_log().debug(f"Success ==> password did not changed.")
         #log.info('Exiting _is_password_ignored returning True because ldap bind with starttls is successful.')
         return True
     except ldap.LDAPError as e:
-        log.debug(f"Failed ==> error is {e}.")
+        get_log().debug(f"Failed ==> error is {e}.")
     try:
-        log.debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap without starttls.")
+        get_log().debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldap without starttls.")
         dirsrv.open(uri=f"ldap://{ensure_str(dirsrv.host)}:{dirsrv.port}", starttls=False)
-        log.debug(f"Success ==> password did not changed.")
+        get_log().debug(f"Success ==> password did not changed.")
         #log.info('Exiting _is_password_ignored returning True because ldap bind is successful.')
         return True
     except ldap.LDAPError as e:
         #log.info(f'Exiting _is_password_ignored returning False because lfap bind failed with error {e}')
-        log.debug(f"Failed ==> error is {e}.")
+        get_log().debug(f"Failed ==> error is {e}.")
     return False
 
 
@@ -133,7 +140,7 @@ def _is_none_ignored(inst, action):
 class Option:
     def __init__(self, name, desc, prio=10, actionCbName=None, dseName=None, dseDN=None, configName=None,
             configTag=None, choice=None, hidden=False, isIgnoredCb=None, readonly=False, required=False, vdef=None, type="str"):
-        self.name = name                 # Ansible variable name
+        self.name = name.lower()         # Ansible variable name
         self.desc = desc                 # Human readable description
         self.prio = prio                 # Priority order ( low priority parameters are handled first )
         self.actioncbname = actionCbName # Name of action handler cb in entity object
@@ -158,6 +165,23 @@ class Option:
                 repr = repr + f", {var}={self.__dict__[var]}"
         repr = repr + ")"
         return repr
+
+    def _get_name_weight(self):
+        """Define a order between option names."""
+        if self.name in ('name', 'state'):
+            res = 'A'
+        else:
+            res = 'B'
+        if self.required:
+            res += 'C'
+        else:
+            res += 'D'
+        res += self.name
+        return res
+
+    def __lt__(self, other):
+        """compare options by name."""
+        return self._get_name_weight() < other._get_name_weight()
 
     def _get_action(self, target, facts, vfrom, vto):
         if self.actioncbname:
@@ -185,7 +209,7 @@ class Option:
             return action.target.getDSE().getSingleValue(dsedn, option.dsename)
         elif action2perform == OptionAction.CONFIG:
             val = action.getValue()
-            log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
+            get_log().debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
             if val is not None:
                 name = option.configname
                 if name is None:
@@ -197,14 +221,16 @@ class Option:
                 action.target.addModifier(dsedn, DiffResult.REPLACEVALUE, option.dsename, action.vto)
 
 
-# class handling the Option associated with ds389 parameters that are in dse.ldif
 class DSEOption(Option):
+    """Class handling the Option associated with ds389 parameters that are in dse.ldif."""
+
     def __init__(self, dsename, dsedn, vdef, desc, **kwargs):
         name = dsename.replace("-", "_").lower()
         Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
 
-# class handling the Option associated with ds389 parameters that are in ds389_create template file
 class ConfigOption(DSEOption):
+    """Class handling the Option associated with ds389 parameters that are in ds389_create template file."""
+
     def __init__(self, name, dsename, dsedn, vdef, desc, **kwargs):
         Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
         if not self.configname:
@@ -212,13 +238,20 @@ class ConfigOption(DSEOption):
         if not self.configtag:
             self.configtag = "slapd"
 
-# class handling special cases like ansible specific parameterss ( like 'state') or the ds389 prefix
 class SpecialOption(Option):
+    """Class handling special cases like ansible specific parameterss ( like 'state') or the ds389_prefix."""
+
     def __init__(self, name, prio, desc, vdef=None, **kwargs):
         Option.__init__(self, name, desc, prio=prio, actionCbName=f'_{name}Action', vdef=vdef, **kwargs)
 
-# class handling replica parameters
+class AgmtTgtOption(Option):
+    """Class handling the Backends Options used to build replication agreements."""
+    def __init__(self, name, desc, **kwargs):
+        Option.__init__(self, name, desc, prio=8, **kwargs)
+
 class ReplicaOption(Option):
+    """Class handling replica parameters."""
+
     DSEDN = 'cn=replica,cn={suffix},cn=mapping tree,cn=config'
 
     def __init__(self, name, desc, **kwargs):
@@ -226,8 +259,8 @@ class ReplicaOption(Option):
         dsename = f'nsds5{name}'
         Option.__init__(self, name, desc, dseName=dsename, dseDN=ReplicaOption.DSEDN, **kwargs)
 
-# class handling replica parameters
 class ChangelogOption(Option):
+    """Class handling replica parameters related to the changelog."""
     DSEDN = 'cn=changelog,cn={bename},cn=ldbm database,cn=plugins,cn=config'
 
     def __init__(self, name, desc, **kwargs):
@@ -235,8 +268,8 @@ class ChangelogOption(Option):
         dsename = f'nsslapd{name}'
         Option.__init__(self, name, desc, dseName=dsename, dseDN=ChangelogOption.DSEDN, **kwargs)
 
-# class handling replication agreement parameters
 class AgmtOption(Option):
+    """Class handling replication agreement parameters."""
     AGMTDN = "{agmtDN}"
 
     def __init__(self, name, desc, **kwargs):
@@ -272,7 +305,7 @@ class OptionAction:
         return getattr(self.target, self.option.name, None)
 
     def perform(self, type):
-        log.debug(f"Performing {type} on action: target={self.target.name} option={self.option.name} vto={self.vto}")
+        get_log().debug(f"Performing {type} on action: target={self.target.name} option={self.option.name} vto={self.vto}")
         assert type in OptionAction.TYPES
         return self.func(action=self, action2perform=type)
 
@@ -309,7 +342,7 @@ class MyConfigObject():
         self.setCtx()
 
     def set(self, args):
-        log.debug(f"MyConfigObject.set {self} {self.name} <-- {args}")
+        get_log().debug(f"MyConfigObject.set {self} {self.name} <-- {args}")
         ### Initialize the object from a raw dict
         if isinstance(args, str):
             args = json.loads(args)
@@ -397,7 +430,7 @@ class MyConfigObject():
         mpn = {}
         if getattr(self,'MyPathNames', None):
             mpn = self.MyPathNames()
-        log.debug(f"{self.getClass()}.getPathNames returned: { { **ppn, **mpn, } }")
+        #get_log().debug(f"{self.getClass()}.getPathNames returned: { { **ppn, **mpn, } }")
         return { **ppn, **mpn, }
 
     def getClass(self):
@@ -407,12 +440,12 @@ class MyConfigObject():
         if path is None:
             return path
         dict = { **self.getPathNames(), **extrapathnames }
-        if not 'prefix' in dict:
-            dict['prefix'] = os.getenv('prefix','')
+        if not PREFIX in dict:
+            dict[PREFIX] = os.getenv('PREFIX','')
         try:
             return path.format(**dict)
         except KeyError as e:
-            log.debug(f"getPath failed because of {e} instance is: {self}")
+            get_log().error(f"getPath failed because of {e} instance is: {self} failing code is {path}.format(**{dict})")
             raise e
 
     def getName(self):
@@ -491,8 +524,15 @@ class MyConfigObject():
         if len(dictCopy) > 0:
             raise ValueError(f"Unexpected  parameters {dictCopy.keys()} in {self.getClass()} object {self}")
 
+    def _get_dict_value(key, val):
+        if key in ( '_dse', ):
+            return '?????'
+        return val
+
     def __repr__(self):
         #return f"{self.__class__.__name__}(variables={self.__dict__})"
+        tmpdict = { key: MyConfigObject._get_dict_value(key, val) for key,val in self.__dict__.items() }
+        return f"{self.__class__.__name__}(name={self.name}, variables={tmpdict})"
         return f"{self.__class__.__name__}(name={self.name}, variables={self.__dict__})"
 
     def getFacts(self):
@@ -538,11 +578,11 @@ class MyConfigObject():
         display_msg = True
         if inst and not inst._mustCreate:
             display_msg = False
-        log.debug(f"Updating instance {self.name}  with facts {facts.name}")
+        get_log().debug(f"Updating instance {self.name}  with facts {facts.name}. Instance is {self}.")
 
         actions = self.getAllActions(facts)
         for action in actions:
-            log.debug(f"MyConfigObject.update: action={action}")
+            get_log().debug(f"{self.getClass()}.update: action={action}")
             if self._isDeleted is True:
                 return
             if action.vfrom == action.vto:
@@ -552,7 +592,7 @@ class MyConfigObject():
                 continue
             msg = action.perform(OptionAction.DESC)
             if msg and display_msg:
-                log.debug(f'SUMMARY += {msg}')
+                get_log().debug(f'SUMMARY += {msg}')
                 summary.extend((msg,))
             if getattr(args, "no_actions", False):
                 continue
@@ -560,8 +600,8 @@ class MyConfigObject():
                 continue
             action.perform(OptionAction.UPDATE)
         if inst:
-           inst.applyMods(self._cfgMods, summary, onlycheck)
-           inst.applyMods(getattr(self, "dseMods", None), summary, onlycheck)
+            inst.applyMods(self._cfgMods, summary, onlycheck)
+            inst.applyMods(getattr(self, "dseMods", None), summary, onlycheck)
 
         for var in self.CHILDREN.keys():
             list = self.__dict__[var]
@@ -596,14 +636,14 @@ class ConfigIndex(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
             if val and val != vdef:
                 setattr(self, action.option.name, val)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
         bename = self.getPath("{bename}")
-        log.debug(f"Configindex._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
+        get_log().debug(f"Configindex._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
@@ -633,7 +673,7 @@ class ConfigIndex(MyConfigObject):
                     if getattr(a.option, 'dsedn', None) == ConfigIndex.IDXDN and a.getValue():
                         mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
                 idx = Index(inst.getDirSrv())
-                log.debug(f"Creating index dn:{dn},{baseDN} properties:{mods}")
+                get_log().debug(f"Creating index dn:{dn},{baseDN} properties:{mods}")
                 idx.create(dn, mods, baseDN)
             else:
                 dn = action.target.getPath(ConfigIndex.IDXDN)
@@ -684,14 +724,14 @@ class ConfigAgmt(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
             if val and val != vdef:
                 setattr(self, action.option.name, val)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
         bename = self.getPath("{bename}")
-        log.debug(f"ConfigAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
+        get_log().debug(f"ConfigAgmt._stateAction: dn= {self.getPath(AgmtOption.AGMTDN)}")
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
@@ -721,7 +761,7 @@ class ConfigAgmt(MyConfigObject):
                     if getattr(a.option, 'dsedn', None) == AgmtOption.AGMTDN and a.getValue():
                         mods.append( (prop[a.option.dsename], ensure_list_bytes(a.getValue())) )
                 agmt = Agreement(inst.getDirSrv())
-                log.debug(f"Creating agmt dn:{dn},{baseDN} properties:{mods}")
+                get_log().debug(f"Creating agmt dn:{dn},{baseDN} properties:{mods}")
                 agmt.create(dn, mods, baseDN)
             else:
                 dn = action.target.getPath(AgmtOption.AGMTDN)
@@ -733,7 +773,11 @@ class ConfigBackend(MyConfigObject):
     CHILDREN = { 'indexes': ConfigIndex, 'agmts': ConfigAgmt }
     BEDN = 'cn={bename},cn=ldbm database,cn=plugins,cn=config'
     # Replication (type, flags, ReplicaRolem, promoteWeight) per roles
-    REPL_ROLES = { None: ( "0", "0", ReplicaRole.STANDALONE, 0 ), "supplier": ( "3", "1", ReplicaRole.SUPPLIER, 3 ), "hub": ( "2", "1", ReplicaRole.HUB, 2 ), "consumer": ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
+    REPL_ROLES = { None: ( "0", "0", ReplicaRole.STANDALONE, 0 ),
+                   'None': ( "0", "0", ReplicaRole.STANDALONE, 0 ),
+                   "supplier": ( "3", "1", ReplicaRole.SUPPLIER, 3 ),
+                   "hub": ( "2", "1", ReplicaRole.HUB, 2 ),
+                   "consumer": ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
 
     OPTIONS = (
         DSEOption('readonly', BEDN, "False", "Desc" ),
@@ -759,6 +803,18 @@ class ConfigBackend(MyConfigObject):
         ReplicaOption('ReplicaBindDNGroupCheckInterval', "Interval between detection of the bind dn group changes", type="int"),
         ReplicaOption('ReplicaBindDNGroup', "DN of the group containing users allowed to replay updates on this replica"),
         ReplicaOption('ReplicaBindDN', "DN of the user allowed to replay updates on this replica"),
+        # AgmtOption('BeginReplicaRefresh', "desc"),   Not an attribut but a action/task
+        AgmtTgtOption('ReplicaBindMethod', "The bind Method",  choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+        AgmtTgtOption('ReplicaBootstrapBindDN', "The fallback bind dn used after getting authentication error"),
+        AgmtTgtOption('ReplicaBootstrapBindMethod', "The fallback bind method", choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
+        AgmtTgtOption('ReplicaBootstrapCredentials', "The credential associated with the fallback bind"),
+        AgmtTgtOption('ReplicaBootstrapTransportInfo', "The encryption method used on the connection after an authentication error.", choice= ("LDAP", "TLS", "SSL" )),
+        AgmtTgtOption('ReplicaCredentials', "The credential associated with the bind",
+                      isIgnoredCb=_is_password_ignored, hidden=True, configName="repl_password"),
+        AgmtTgtOption('ReplicaHost', "The target instance hostname"),
+        AgmtTgtOption('ReplicaPort', "Target instance port", type="int"),
+        #AgmtTgtOption('ReplicaRoot', "Replicated suffix DN"),   # Same as the parent backend suffix
+        AgmtTgtOption('ReplicaTransportInfo', "The encryption method used on the connection", choice= ("LDAP", "TLS", "SSL") ),
         ReplicaOption('ReplicaId', "The unique ID for suppliers in a given replication environment (between 1 and 65534).", type="int"),
         ReplicaOption('ReplicaPreciseTombstonePurging', "???"),
         ReplicaOption('ReplicaProtocolTimeout', "Timeout used when stopping replication to abort ongoing operations.", type="int"),
@@ -793,7 +849,7 @@ class ConfigBackend(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"Backend {self.name} option:{action.option.name} val:{val}")
+            get_log().debug(f"Backend {self.name} option:{action.option.name} val:{val}")
             if val and val != vdef:
                 setattr(self, action.option.name, val)
 
@@ -843,9 +899,10 @@ class ConfigBackend(MyConfigObject):
 
     def _getChangelog(self):
         inst = self._parent.getDirSrv()
-        return Changelogi(inst, suffix=self.suffix)
+        return Changelog(inst, suffix=self.suffix)
 
     def _ReplicaRoleAction(self=None, action=None, action2perform=None):
+        get_log().debug(f'_ReplicaRoleAction names={self._parent.name}.{self.name}, {action}={action}, action2perform={action2perform}')
         option = action.option
         if _is_none_ignored(self, action):
             action.vto = None
@@ -878,20 +935,29 @@ class ConfigBackend(MyConfigObject):
                     replica.demote(demote_role)
                 if to_weight == 0:
                     replica.delete()
-                if (tf_from[1] != tf_to[1]):
-                    # Should also delete the changelog entry
-                    changelog = self._getChangelog()
-                    changelog.delete()
+                #if tf_from[1] != tf_to[1]:
+                #    # Should also delete the changelog entry
+                #    changelog = self._getChangelog()
+                #    changelog.delete()
             if from_weight < to_weight:
                 # Should create or promote
-                rid = getattr(self, "ReplicaId", None)
-                binddn = getattr(self, "ReplicaBindDN", None)
-                if (tf_from[1] != tf_to[1]):
-                    # Should also create the changelog entry
-                    changelog = self._getChangelog()
-                    changelog.create()
+                rid = getattr(self, "replicaid", None)
+                binddn = getattr(self, "replicabinddn", None)
+                inst = self._parent.getDirSrv()
+                replicas = Replicas(inst)
+                #if tf_from[1] != tf_to[1]:
+                #    # Should also create the changelog entry
+                #    changelog = self._getChangelog()
+                #    changelog.create()
                 if from_weight == 0:
-                    replica.create(suffix=self.suffix, role=tf_to[2], rid=rid)
+                    replicas.create(properties={
+                        'cn': 'replica',
+                        'nsDS5ReplicaRoot': self.suffix,
+                        'nsDS5ReplicaId': str(rid),
+                        'nsDS5Flags': str(tf_to[1]),
+                        'nsDS5ReplicaType': str(tf_to[0]),
+                        'nsDS5ReplicaBindDN': binddn,
+                    })
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
@@ -925,7 +991,7 @@ class ConfigBackend(MyConfigObject):
                         prop[a.option.dsename] = ensure_bytes(a.getValue())
                 assert 'nsslapd-suffix' in prop
                 be = Backend(inst.getDirSrv())
-                log.debug(f"Creating backend dn:{dn} properties:{prop}")
+                get_log().debug(f"Creating backend dn:{dn} properties:{prop}")
                 be.create(dn, prop)
             else:
                 dn = action.target.getPath(ConfigBackend.BEDN)
@@ -954,27 +1020,41 @@ class ConfigInstance(MyConfigObject):
         ConfigOption('backup_dir', 'nsslapd-bakdir', 'cn=config', None, "Directory containing the backup files" ),
         ConfigOption('bin_dir', 'nsslapd-bin_dir', f'cn=config', None, f"Directory containing ns-slapd binary{DEVWARN}" ),
         ConfigOption('cert_dir', 'nsslapd-certdir', 'cn=config', None, "Directory containing the NSS certificate databases" ),
-        ConfigOption('config_dir', None, None, None, "Sets the configuration directory of the instance (containing the dse.ldif file)" ),
+        ConfigOption('config_dir', None, None, None,
+                     "Sets the configuration directory of the instance (containing the dse.ldif file)" ),
         ConfigOption('data_dir', None, None, None, f"Sets the location of Directory Server shared static data{DEVWARN}" ),
         ConfigOption('db_dir', 'nsslapd-directory', LDBM_CONFIG_DB, None, "Sets the database directory of the instance" ),
-        ConfigOption('db_home_dir', 'nsslapd-db-home-directory', 'cn=bdb,cn=config,cn=ldbm database,cn=plugins,cn=config', None, "Sets the memory-mapped database files location of the instance" ),
-        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None, "Select the database implementation library", choice=("bdb", "mdb")),
-        ConfigOption('full_machine_name', 'nsslapd-localhost', 'cn=config', None, 'The fully qualified hostname (FQDN) of this system. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to the FQDN of the load balancer and, additionally, set "strict_host_checking" to "false"' ),
-        ConfigOption('group', 'nsslapd-group', 'cn=config', None, "Sets the group name the ns-slapd process will use after the service started" ),
-        ConfigOption('initconfig_dir', None, None, None, f"Sets the directory of the operating system's rc configuration directory{DEVWARN}" ),
+        ConfigOption('db_home_dir', 'nsslapd-db-home-directory', 'cn=bdb,cn=config,cn=ldbm database,cn=plugins,cn=config',
+                      None, "Sets the memory-mapped database files location of the instance" ),
+        ConfigOption('db_lib', 'nsslapd-backend-implement', LDBM_CONFIG_DB, None,
+                     "Select the database implementation library", choice=("bdb", "mdb")),
+        ConfigOption('full_machine_name', 'nsslapd-localhost', 'cn=config', None,
+                     'The fully qualified hostname (FQDN) of this system. When installing this instance with GSSAPI ' +
+                     'authentication behind a load balancer, set this parameter to the FQDN of the load balancer and, ' +
+                     'additionally, set "strict_host_checking" to "false"' ),
+        ConfigOption('group', 'nsslapd-group', 'cn=config', None,
+                     "Sets the group name the ns-slapd process will use after the service started" ),
+        ConfigOption('initconfig_dir', None, None, None,
+                     f"Sets the directory of the operating system's rc configuration directory{DEVWARN}" ),
         ConfigOption('instance_name', None, None, None, "Sets the name of the instance." ),
         ConfigOption('inst_dir', None, None, None, "Directory containing instance-specific scripts" ),
-        ConfigOption('ldapi', 'nsslapd-ldapifilepath', 'cn=config', None, "Sets the location of socket interface of the Directory Server" ),
-        ConfigOption('ldif_dir', 'nsslapd-ldifdir', 'cn=config', None, "Directory containing the the instance import and export files" ),
+        ConfigOption('ldapi', 'nsslapd-ldapifilepath', 'cn=config', None,
+                     "Sets the location of socket interface of the Directory Server" ),
+        ConfigOption('ldif_dir', 'nsslapd-ldifdir', 'cn=config', None,
+                     "Directory containing the the instance import and export files" ),
         ConfigOption('lib_dir', None, None, None, f"Sets the location of Directory Server shared libraries{DEVWARN}" ),
         ConfigOption('local_state_dir', None, None, None, f"Sets the location of Directory Server variable data{DEVWARN}" ),
         ConfigOption('lock_dir', 'nsslapd-lockdir', 'cn=config', None, "Directory containing the lock files" ),
-        ConfigOption('port', 'nsslapd-port', 'cn=config', None, "Sets the TCP port the instance uses for LDAP connections", type="int"),
-        ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None, "Sets the Distinquished Name (DN) of the administrator account for this instance. " +
-            "It is recommended that you do not change this value from the default 'cn=Directory Manager'" ),
-        ConfigOption('rootpw', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). ' +
-            'You can either set this parameter to a plain text password ds389_create hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility. ' +
-            'The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file',
+        ConfigOption('port', 'nsslapd-port', 'cn=config', None,
+                     "Sets the TCP port the instance uses for LDAP connections", type="int"),
+        ConfigOption('root_dn', 'nsslapd-rootdn', 'cn=config', None,
+                     "Sets the Distinquished Name (DN) of the administrator account for this instance. It is recommended " +
+                     "that you do not change this value from the default 'cn=Directory Manager'" ),
+        ConfigOption('rootpw', 'nsslapd-rootpw', 'cn=config', None, 'Sets the password of the "cn=Directory Manager" account ' +
+            '("root_dn" parameter). You can either set this parameter to a plain text password ds389_create hashes during the ' +
+            'installation or to a "{algorithm}hash" string generated by the pwdhash utility.  The password must be at least 8 ' +
+            'characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read ' +
+            'this INF file',
             isIgnoredCb=_is_password_ignored, hidden=True, configName="root_password"),
         ConfigOption('run_dir', 'nsslapd-rundir', 'cn=config', None, "Directory containing the pid file" ),
         ConfigOption('sbin_dir', None, None, None, f"Sets the location where the Directory Server administration binaries are stored{DEVWARN}" ),
@@ -999,7 +1079,7 @@ class ConfigInstance(MyConfigObject):
         DSEOption('nsslapd-lookthroughlimit', LDBM_CONFIG_DB, '5000', "The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED", type="int"),
         DSEOption('nsslapd-mode', LDBM_CONFIG_DB, '600', "The database permission (mode) in octal", type="int"),
         DSEOption('nsslapd-idlistscanlimit', LDBM_CONFIG_DB, '4000', "The maximum number of entries a given index key may refer before the index is handled as unindexed.", type="int"),
-        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory", isIgnoredCb=_is_none_ignored),
+        DSEOption('nsslapd-directory', LDBM_CONFIG_DB, '{ds389_prefix}/var/lib/dirsrv/slapd-{instname}/db', "Default database directory", isIgnoredCb=_is_none_ignored),
         DSEOption('nsslapd-import-cachesize', LDBM_CONFIG_DB, '16777216', "Size of database cache when doing an import", type="int"),
         DSEOption('nsslapd-search-bypass-filter-test', LDBM_CONFIG_DB, 'on', "Allowed values are: 'on', 'off' or 'verify'. " +
             "If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. " +
@@ -1013,8 +1093,8 @@ class ConfigInstance(MyConfigObject):
         SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
     )
 
-    DSE_PATH='{prefix}/etc/dirsrv/slapd-{instname}/dse.ldif'
-    GLOBAL_DSE_PATH='{prefix}/etc/dirsrv/dse-ansible-default.ldif'
+    DSE_PATH='{ds389_prefix}/etc/dirsrv/slapd-{instname}/dse.ldif'
+    GLOBAL_DSE_PATH='{ds389_prefix}/etc/dirsrv/dse-ansible-default.ldif'
 
 
     def __init__(self, name, parent=None):
@@ -1058,11 +1138,11 @@ class ConfigInstance(MyConfigObject):
                 dsedn = self.getPath(option.dsedn)
                 action, val = newResult.getSingleValuedValue(dsedn, option.dsename)
                 if action:
-                    if (action != DiffResult.DELETEVALUE):
+                    if action != DiffResult.DELETEVALUE:
                         self.setOption(option.name, val)
                     else:
                         self.setOption(option.name, None)
-                    if (action != DiffResult.ADDENTRY):
+                    if action != DiffResult.ADDENTRY:
                         newResult.result[dsedn][action].pop(option.dsename, None)
         return newResult
 
@@ -1080,6 +1160,7 @@ class ConfigInstance(MyConfigObject):
         return "stopped"
 
     def getDirSrv(self, mode = DIRSRV_OPEN):
+        get_log().debug(f'getDirSrv: serverid={self.name}, mode={mode})')
         assert mode in ConfigInstance.DIRSRV_MODES
         dirSrv = None
         if self.exists():
@@ -1090,6 +1171,7 @@ class ConfigInstance(MyConfigObject):
             dirSrv.local_simple_allocate(serverid=self.name)
             self._DirSrv[mode] = dirSrv
         status = self._getInstanceStatus(dirSrv)
+        get_log().debug(f'getDirSrv: status={status}')
         if self._initial_state == "unknown":
             self._initial_state = status
         if status == "absent":
@@ -1104,7 +1186,7 @@ class ConfigInstance(MyConfigObject):
             if status == "stopped":
                 dirSrv.start()
             dirSrv.open()
-        return dirSrv;
+        return dirSrv
 
     def exists(self):
         dsePath = self.getPath(self.DSE_PATH)
@@ -1121,7 +1203,7 @@ class ConfigInstance(MyConfigObject):
         state = self._getInstanceStatus()
         if state == 'absent':
             return
-        log.debug(f'ConfigInstance.getFacts(instance: {self.name} state:{state}')
+        get_log().debug(f'ConfigInstance.getFacts(instance: {self.name} state:{state}')
         dse = self.getDSE()
         assert dse
 
@@ -1129,7 +1211,7 @@ class ConfigInstance(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            log.debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val}")
+            get_log().debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val}")
             if val and (val != vdef or action.option.name == 'state'):
                 setattr(self, action.option.name, val)
 
@@ -1149,7 +1231,7 @@ class ConfigInstance(MyConfigObject):
         self.setOption('dseMods', result.toYaml())
 
     def create(self):
-        log.debug(f"ConfigInstance.create {self.name}")
+        get_log().debug(f"ConfigInstance.create {self.name}")
         config = self._infConfig
         config['general'] = { 'version' : 2, 'start' : 'True' }
         config['slapd'] = { 'instance_name' : self.name }
@@ -1165,7 +1247,7 @@ class ConfigInstance(MyConfigObject):
         for action in actions:
             if action.option.configtag:
                 action.perform(OptionAction.CONFIG)
-        s = SetupDs(log=log)
+        s = SetupDs(log=get_log())
         general, slapd, backends = s._validate_ds_config(config)
         s.create_from_args(general, slapd, backends)
 
@@ -1217,7 +1299,7 @@ class ConfigInstance(MyConfigObject):
             return defaultDSE
 
     def _stateAction(self=None, action=None, action2perform=None):
-        log.debug(f'ConfigInstance._stateAction inst={self.name} action2perform={action2perform} action={action}')
+        get_log().debug(f'ConfigInstance._stateAction inst={self.name} action2perform={action2perform} action={action}')
         option = action.option
         if _is_none_ignored(self, action):
             action.vto = "present"
@@ -1275,7 +1357,7 @@ class ConfigInstance(MyConfigObject):
                 inst = self.getDirSrv(mode=ConfigInstance.DIRSRV_LDAPI)
                 inst.delete()
                 if facts:
-                    getattr(facts, 'instances').pop(self.name, None)
+                    getattr(facts, INSTANCES).pop(self.name, None)
             return
         elif isTrue(self.started):
             wantedstate = "started"
@@ -1301,7 +1383,7 @@ class ConfigInstance(MyConfigObject):
 
     def filterOps(self, dirSrv, mods, overwrite):
         ops=[]
-        log.debug(f'ConfigInstance.filterOps mods={type(mods)}: {mods}')
+        get_log().debug(f'ConfigInstance.filterOps mods={type(mods)}: {mods}')
         for dn, actionDict in mods.items():
             entry = Entry.fromDS(dirSrv, dn)
             for action in actionDict.keys():
@@ -1386,15 +1468,17 @@ class ConfigInstance(MyConfigObject):
 
 class ConfigRoot(MyConfigObject):
     OPTIONS = (
-        SpecialOption('prefix', 1, "389 Directory Service non standard installation path" ),
+        SpecialOption(PREFIX, 1, "389 Directory Service non standard installation path" ),
+        SpecialOption(AGMTS, 1, "Ansible inventory ds389 replication agreements", type="list" ),
         SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed", vdef="present", choice= ("present", "updated", "absent")),
 
     )
-    CHILDREN = { 'instances': ConfigInstance }
+    CHILDREN = { INSTANCES: ConfigInstance, }
 
+    @staticmethod
     def from_path(path):
         ### Decode and validate parameters from yaml or json file. Returns a ConfigRoot object
-        log.info(f'Decoding parameters from file {path}')
+        get_log().info(f'Decoding parameters from file {path}')
         if path.endswith('.yaml') or path.endswith('.yml'):
             with open(path, 'r') as f:
                 content = yaml.safe_load(f)
@@ -1405,49 +1489,64 @@ class ConfigRoot(MyConfigObject):
         host.set(content)
         return host
 
+
+    @staticmethod
     def from_stdin():
         data = sys.stdin.read()
-        log.info(f'Decoding parameters from STDIN: {data}')
+        get_log().info(f'Decoding parameters from STDIN: {data}')
         ### Decode and validate parameters from stdin (interpreted as a json file. Returns a ConfigRoot object
         content = json.load(io.StringIO(data))
         host = ConfigRoot()
         host.set(content)
         return host
 
+
+    @staticmethod
     def from_content(content):
         ### Validate parameters from raw dict object. Returns a ConfigRoot object
-        log.info(f'Decoding parameters from content {content}')
+        get_log().debug(f'Decoding parameters from content {content}')
         host = ConfigRoot()
         host.set(content)
         return host
 
+
+    @staticmethod
+    def strip_instance_name(inst):
+        if inst.startswith('slapd-'):
+            return inst[6:]
+        return inst
+
+
     def __init__(self, name=ROOT_ENTITY):
         super().__init__(name)
-        self.prefix = self.getPath('{prefix}')
+        self.ds389_prefix = self.getPath('{ds389_prefix}')
 
-    def tolist(self):
-        d = super().tolist()
-        res = {}
-        for key,val in { 'instances': 'ds389_server_instances', 'prefix': 'ds389_server_prefix', 'state': 'state' }.items():
-            if key in d:
-                res[val] = d[key]
-        return res
+    #def tolist(self):
+        #d = super().tolist()
+        #res = {}
+        #for key,val in { 'instances': INSTANCES, 'prefix': PREFIX, 'state': 'state' }.items():
+        #    if key in d:
+        #        res[val] = d[key]
+        #return res
 
     def MyPathNames(self):
-        return { 'hostname' : self.name, 'prefix' : os.environ.get('PREFIX', "") }
+        return { 'hostname' : self.name, PREFIX : os.environ.get('PREFIX', "") }
 
     def getFacts(self):
         ### Lookup for all dse.ldif to list the instances
-        for f in glob.glob(f'{self.prefix}/etc/dirsrv/slapd-*/dse.ldif'):
+        for f in glob.glob(f'{self.ds389_prefix}/etc/dirsrv/slapd-*/dse.ldif'):
             ### Extract the instance name from dse.ldif path
             m = re.match(f'.*/slapd-([^/]*)/dse.ldif$', f)
             ### Then creates the Instance Objects
             instance = ConfigInstance(m.group(1), parent=self)
-            self.instances[instance.name] = instance
+            self.ds389_server_instances[instance.name] = instance
             ### And populate them
             instance.getFacts()
 
-    def _prefixAction(self=None, action=None, action2perform=None):
+    def _ds389_agmtsAction(self=None, action=None, action2perform=None):
+        pass
+
+    def _ds389_prefixAction(self=None, action=None, action2perform=None):
         option = action.option
         if action2perform == OptionAction.DESC:
             return f"Set PREFIX environment variable to {action.vto}"
@@ -1457,18 +1556,41 @@ class ConfigRoot(MyConfigObject):
             return os.environ.get('PREFIX', "")
         elif action2perform == OptionAction.CONFIG:
             val = action.getValue()
-            log.debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
+            get_log().debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
             action.target._infConfig['slapd'][option.name] = val
         elif action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
             os.environ.set('PREFIX', action.vto)
 
     def _stateAction(self=None, action=None, action2perform=None):
-        instances = get_instance_list()
-        log.debug(f"ConfigRoot._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
+        existing_instances = []
+
+        #Compare existing instances to requested
+        existing_instances = [ ConfigRoot.strip_instance_name(x) for x in get_instance_list() ]
+        requested_instances = [ key for key in self.ds389_server_instances.keys() ]
+        instances_to_add = [ inst for inst in requested_instances if not inst in existing_instances ]
+        instances_to_remove = [ inst for inst in existing_instances if not inst in requested_instances ]
+        get_log().debug(f'ConfigRoot._stateAction: existing_instances={existing_instances} requested_instances={requested_instances}')
+        get_log().debug(f'ConfigRoot._stateAction: instances_to_add={instances_to_add} instances_to_remove={instances_to_remove} action.vto={action.vto}')
+
+        if action.vto == "absent":
+            instances_to_remove.extends(existing_instances)
+            instances_to_add = []
+        elif action.vto == "stopped" or action.vto == "started":
+            instances_to_add = []
+            instances_to_remove = []
+        elif action.vto != "updated":
+            instances_to_remove = []
+
+        get_log().debug(f'ConfigRoot._stateAction: instances_to_add={instances_to_add} instances_to_remove={instances_to_remove} existing_instances={existing_instances} action.vto={action.vto}')
+
         if action2perform == OptionAction.DESC:
-            if action.vto == "absent" and len(instances) > 0:
-                return "Removing all instances"
+            msg = []
+            for instance in instances_to_add:
+                msg.append(f'Creating instance: {instance}')
+            for instance in instances_to_remove:
+                msg.append(f'Deleting instance: {instance}')
+            return str(msg)
         elif action2perform == OptionAction.DEFAULT:
             return "present"
         elif action2perform == OptionAction.FACT:
@@ -1479,31 +1601,38 @@ class ConfigRoot(MyConfigObject):
         elif action2perform == OptionAction.CONFIG:
             pass
         elif action2perform == OptionAction.UPDATE:
+            option = action.option
             setattr(action.facts, option.name, action.vto)
-            if action.vto == "absent":
-                for inst in instances:
-                    dirSrv = DirSrv()
-                    dirSrv.local_simple_allocate(serverid=inst)
-                    dirSrv.remove()
+            for instance in existing_instances:
+                dirSrv = DirSrv()
+                dirSrv.local_simple_allocate(serverid=instance)
+                if action.vto == "stopped":
+                    dirSrv.stop()
+                elif action.vto == "started":
+                    dirSrv.start()
+            for instance in instances_to_remove:
+                dirSrv = DirSrv()
+                dirSrv.local_simple_allocate(serverid=instance)
+                dirSrv.delete()
 
 
 def toAnsibleResult(object):
-   cb=getattr(object, "toAnsibleResult", None)
-   if cb is not None:
+    cb=getattr(object, "toAnsibleResult", None)
+    if cb is not None:
         return cb(object)
-   if isinstance(object, MyConfigObject):
-        log.debug(f"toAnsibleResult: object={object}")
+    if isinstance(object, MyConfigObject):
+        get_log().debug(f"toAnsibleResult: object={object}")
         return toAnsibleResult( object.__getstate__() )
-   if type(object) is list:
+    if type(object) is list:
         l=[]
         for i in object:
             l.append(toAnsibleResult(i))
         return l
-   if type(object) is tuple:
+    if type(object) is tuple:
         return tuple(toAnsibleResult(list(object)))
-   if type(object) is dict:
+    if type(object) is dict:
         d={}
         for k,v in object.items():
             d[toAnsibleResult(k)] = toAnsibleResult(v)
         return d
-   return object
+    return object

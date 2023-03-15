@@ -35,12 +35,15 @@ def test_info(topo_m2, ansibletest):
                   check that supplier2 userroot backend is in the facts.
     """
 
-    log = ansibletest.getLog(__name__)
-    args = { "prefix" : os.getenv('PREFIX', '') }
-    result = ansibletest.runTestModule( { "ANSIBLE_MODULE_ARGS": args } )
+    log = ansibletest.get_log(__name__)
+    args = { 'ds389info' : {
+        "ansible_verbosity" : 0,
+        "ansible_check_mode": False,
+        "ds389_prefix" : os.getenv('PREFIX', '') } }
+    result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
     log.info(f'result={result}')
-    assert 'my_useful_info' in result
-    assert ansibletest.getInstanceAttr('supplier1', 'state') == 'present'
-    assert ansibletest.getInstanceAttr('supplier2', 'state') == 'present'
-    assert ansibletest.getBackendAttr('supplier1', 'userroot', 'state') == 'present'
-    assert ansibletest.getBackendAttr('supplier2', 'userroot', 'state') == 'present'
+    assert 'ansible_facts' in result
+    assert ansibletest.get_instance_attr('supplier1', 'state') == 'present'
+    assert ansibletest.get_instance_attr('supplier2', 'state') == 'present'
+    assert ansibletest.get_backend_attr('supplier1', 'userroot', 'state') == 'present'
+    assert ansibletest.get_backend_attr('supplier2', 'userroot', 'state') == 'present'
