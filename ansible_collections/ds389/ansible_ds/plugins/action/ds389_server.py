@@ -384,6 +384,7 @@ class _PH:
 
     def validate_topology(self):
         """Perform global topology consistency checks."""
+<<<<<<< HEAD
         rids = {} # { "rid::suffix" : bename }
         errors = []
         for bevname,bedict in self.replbes.items():
@@ -410,6 +411,9 @@ class _PH:
                 errors.append((f"Backend {bevname} is configured as a consumer but has replica agreements.",))
         if errors:
             raise AnsibleError(f'Topology errors: {errors}')
+=======
+        pass
+>>>>>>> 8304674 (Issue 31 - Add ds389_info plugin)
 
 
 class ActionModule(ActionBase):
