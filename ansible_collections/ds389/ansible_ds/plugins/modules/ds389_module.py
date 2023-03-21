@@ -88,7 +88,7 @@ def manage_instances(content, result, checkmode):
     #pylint: disable=broad-exception-caught
     except Exception as exc:
         raise AnsibleError('Failed to validate the parameters.') from exc
-    result['cooked_message'] = safe_dup(wanted_state.tolist())
+    #result['cooked_message'] = safe_dup(wanted_state.tolist())
     get_log().debug(f"wanted_state={wanted_state}")
     # Determine current state
     host = ConfigRoot()
@@ -162,7 +162,7 @@ def run_module():
     # for consumption, for example, in a subsequent task
     result = {
         "changed": False,
-        "original_message": '',
+        "invocation": '',
         "message": '',
     }
 
@@ -176,7 +176,7 @@ def run_module():
         supports_check_mode=True
     )
 
-    result['original_message'] = safe_dup(module.params)
+    result['invocation'] = safe_dup(module.params)
     content = module.params['ds389']
     fact = module.params['ds389info']
     try:
@@ -199,8 +199,6 @@ def run_module():
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     get_log().debug(f"Result is: {json.dumps({**result}, sort_keys=True, indent=4)}")
-    if common_params['debuglvl'] < 5:
-        result.pop('original_message')
     if common_params['debuglvl'] >0 and _logbuff.getvalue():
         result['debug'] = _logbuff.getvalue()
     module.exit_json(**result)

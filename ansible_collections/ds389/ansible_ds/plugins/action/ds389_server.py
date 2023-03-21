@@ -1,6 +1,9 @@
 #!/usr/bin/python
 """Action plugin that calls ds389_module after having prepared its parameters."""
 
+# Copyright: Contributors to the 389ds project
+# GNU General Public License v3.0+ (see COPYRIGHT or https://www.gnu.org/licenses/gpl-3.0.txt)
+
 # Make coding more python3-ish, this is required for contributions to Ansible
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
@@ -24,6 +27,37 @@ extends_documentation_fragment:
   - ds389_server_doc
 
 options:
+  - option-name:
+      ds389_option_*
+        description:
+          - A modifier that allows to merge option in existing dict or to add items in existing list
+          - * means any characters that are valid in an ansible variable name
+          - These modifiers are processed using increasing lexicographic order
+          - These options are processed at the plugin level and not sent to the module.
+        type: dict
+        suboptions:
+          option-name:
+            name:
+              description:
+                - The name defines the target dict or list that should be modified.
+                - the target in nested list/dict is defined using a dot notation.
+              type: string
+              required: true
+            merge:
+              description:
+                - merge option means that the sub keys must be merged in the target dict
+              type: dict
+            append:
+              description:
+                - append option means that following items must be added in target list
+              type: list
+            required_one_of:
+                - merge
+                - append
+            mutually_exclusive:
+                - merge
+                - append
+        version: 1.0.0
 
 author:
     - Pierre Rogier (@progier389)
@@ -333,6 +367,10 @@ class _PH:
         if lvl <= self.debug:
             self.debug_info[f'debug-{self.host}-{name}'] = data
 
+    def validate_topology(self):
+        """Perform global topology consistency checks."""
+        pass
+
 
 class ActionModule(ActionBase):
     """The action plugin class."""
@@ -367,6 +405,8 @@ class ActionModule(ActionBase):
                 args.add_keys(plugin_args, ('state',))
             # Process the data
             args.process_args(task_vars)
+
+            args.validate_topology()
 
             module_args = {'ds389' : args.args}
             # Call the module on remote host

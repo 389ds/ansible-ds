@@ -1,7 +1,0 @@
----
-- hosts: localhost
-  tasks:
-    - debug:
-        msg: import ds389.ansible_ds.gather_dsinst_info.yml
-- name: Run ds389.ansible_ds.gather_dsinst_info.yml
-  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/gather_dsinst_info.yml
