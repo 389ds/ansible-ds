@@ -95,7 +95,7 @@ def manage_instances(content, result, checkmode):
     host.getFacts()
     # Then change it
     summary = []
-    wanted_state.update(facts=host, summary=summary, onlycheck=checkmode)
+    wanted_state.update(host, summary, checkmode)
     result['message'] =  summary
     # Summary is a list of string describing the changes
     # So config changed if the list is not empty
@@ -129,8 +129,11 @@ def handle_common_parameters(params):
         os.environ['PREFIX'] = prefix
     res['prefix'] = prefix
     debuglvl = params['ansible_verbosity']
+    with open("/tmp/l", "w") as f:
+        f.write(f"debuglvl={debuglvl}\n")
     if debuglvl >= 4:
         get_log().setLevel(logging.DEBUG)
+        os.environ['DEBUGGING'] = '1' # Enable lib389 debug logs
     elif debuglvl == 3:
         get_log().setLevel(logging.INFO)
     elif debuglvl == 1:
@@ -176,6 +179,7 @@ def run_module():
         supports_check_mode=True
     )
 
+    result['raw_invocation'] = module.params
     result['invocation'] = safe_dup(module.params)
     content = module.params['ds389']
     fact = module.params['ds389info']
@@ -190,17 +194,23 @@ def run_module():
             raise AnsibleError("Operation failed: Missing 'ds389' or 'ds389info' parameter.")
     #pylint: disable=broad-exception-caught
     except Exception as exc:
-        if _logbuff.getvalue():
-            result['debug'] = _logbuff.getvalue()
-        result['exception'] = exc
         get_log().error(f'ds389_module failed: {str(result)}')
+        logbuff = str(_logbuff.getvalue())
+        if logbuff:
+            result['module_debug'] = logbuff
+        result['exception'] = exc
+        with open("/tmp/l", "a") as f:
+            f.write(f"DEBUG {logbuff}\n")
         module.fail_json('ds389_module failed', **result)
 
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     get_log().debug(f"Result is: {json.dumps({**result}, sort_keys=True, indent=4)}")
-    if common_params['debuglvl'] >0 and _logbuff.getvalue():
-        result['debug'] = _logbuff.getvalue()
+    logbuff = str(_logbuff.getvalue())
+    with open("/tmp/l", "a") as f:
+        f.write(f"DEBUG {logbuff}\n")
+    if common_params['debuglvl'] >0 and logbuff:
+        result['module_debug'] = logbuff
     module.exit_json(**result)
 
 

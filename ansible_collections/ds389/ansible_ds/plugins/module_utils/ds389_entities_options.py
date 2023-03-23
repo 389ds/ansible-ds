@@ -14,6 +14,10 @@
 #  - ansible_collections/ds389/ansible_ds/plugins/module_utils/ds389_entities.py
 # by using 'make gensrc'
 
+# pylint: disable=line-too-long
+
+"""This module contains the part of the ds389_module argspec (below ds389 dict)."""
+
 CONTENT_OPTIONS = {
     'state': {
         'description': """If 'state' is 'absent' then all instances are removed.""",
@@ -167,11 +171,11 @@ CONTENT_OPTIONS = {
             'nsslapd_exclude_from_export': {
                 'description': 'list of attributes that are not exported.',
                 'required': False,
-                'default': 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn',
+                'default': 'entrydn entryid dncomp parentid numSubordinates             tombstonenumsubordinates entryusn',
                 'type': 'str',
             },
             'nsslapd_idlistscanlimit': {
-                'description': 'The maximum number of entries a given index key may refer before the index is handled as unindexed..',
+                'description': 'The maximum number of entries a given index key may refer             before the index is handled as unindexed..',
                 'required': False,
                 'default': '4000',
                 'type': 'int',
@@ -183,7 +187,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'nsslapd_lookthroughlimit': {
-                'description': 'The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
+                'description': 'The maximum number of entries that are looked in search             operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
                 'required': False,
                 'default': '5000',
                 'type': 'int',
@@ -213,7 +217,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'nsslapd_search_bypass_filter_test': {
-                'description': """Allowed values are: 'on', 'off' or 'verify'. If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries.""",
+                'description': """Allowed values are: 'on', 'off' or 'verify'.             If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when             it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates             the filter against the search candidate entries.""",
                 'required': False,
                 'default': 'on',
                 'type': 'str',
@@ -269,7 +273,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'self_sign_cert': {
-                'description': """Sets whether the setup creates a self-signed certificate and enables TLS encryption during the installation. The certificate is not suitable for production, but it enables administrators to use TLS right after the installation. You can replace the self-signed certificate with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.""",
+                'description': """Sets whether the setup creates a self-signed certificate and             enables TLS encryption during the installation. The certificate is not suitable for production, but it             enables administrators to use TLS right after the installation. You can replace the self-signed certificate             with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by             importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.""",
                 'required': False,
                 'type': 'str',
             },
@@ -279,7 +283,7 @@ CONTENT_OPTIONS = {
                 'type': 'str',
             },
             'selinux': {
-                'description': """Enables SELinux detection and integration during the installation of this instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment or if using a non root installation.""",
+                'description': """Enables SELinux detection and integration during the installation of this             instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to             "False" in a development environment or if using a non root installation.""",
                 'required': False,
                 'type': 'bool',
             },
@@ -290,7 +294,7 @@ CONTENT_OPTIONS = {
                 'type': 'bool',
             },
             'strict_host_checking': {
-                'description': """Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false".""",
+                'description': """Sets whether the server verifies the forward and reverse record             set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load             balancer, set this parameter to "false". Container installs imply "false".""",
                 'required': False,
                 'type': 'bool',
             },
@@ -300,7 +304,7 @@ CONTENT_OPTIONS = {
                 'type': 'str',
             },
             'systemd': {
-                'description': """Enables systemd platform features. If set to "True", ds389_create auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.""",
+                'description': """Enables systemd platform features. If set to "True", ds389_create             auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.""",
                 'required': False,
                 'type': 'bool',
             },
@@ -341,21 +345,6 @@ CONTENT_OPTIONS = {
                         'required': True,
                         'type': 'str',
                     },
-                    'chain_bind_dn': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'chain_bind_pw': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'chain_urls': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
                     'changelogencryptionalgorithm': {
                         'description': 'Encryption algorithm used to encrypt the changelog..',
                         'required': False,
@@ -379,37 +368,6 @@ CONTENT_OPTIONS = {
                     'changelogtriminterval': {
                         'description': 'Time (in seconds) between two runs of the changlog trimming. .',
                         'required': False,
-                        'type': 'str',
-                    },
-                    'db_deadlock': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'directory': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'dn_cache_size': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'entry_cache_number': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'entry_cache_size': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'type': 'str',
-                    },
-                    'readonly': {
-                        'description': 'Desc.',
-                        'required': False,
-                        'default': False,
                         'type': 'str',
                     },
                     'replicabackoffmax': {
@@ -550,16 +508,6 @@ CONTENT_OPTIONS = {
                             'SSL',
                         ),
                     },
-                    'replicatransportinfo': {
-                        'description': 'The type of transport used for transporting data to and from the replica..',
-                        'required': False,
-                        'type': 'str',
-                        'choices': (
-                            'LDAP',
-                            'SSL',
-                            'TLS',
-                        ),
-                    },
                     'replicaupdateschedule': {
                         'description': 'Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing hour, and the numbers 0123456 are the days of the week starting with Sunday..',
                         'required': False,
@@ -569,6 +517,52 @@ CONTENT_OPTIONS = {
                         'description': 'Delay in milliseconds before resending an update if consumer does not acknowledge it..',
                         'required': False,
                         'type': 'int',
+                    },
+                    'chain_bind_dn': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'chain_bind_pw': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'chain_urls': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'db_deadlock': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'directory': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'dn_cache_size': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'entry_cache_number': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'entry_cache_size': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'type': 'str',
+                    },
+                    'readonly': {
+                        'description': 'Desc.',
+                        'required': False,
+                        'default': False,
+                        'type': 'str',
                     },
                     'require_index': {
                         'description': 'Desc.',
@@ -674,7 +668,7 @@ CONTENT_OPTIONS = {
                                 'type': 'int',
                             },
                             'replicaflowcontrolwindow': {
-                                'description': 'The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsds5ReplicaFlowControlPause parameter.',
+                                'description': 'The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsDS5ReplicaFlowControlPause parameter.',
                                 'required': False,
                                 'type': 'int',
                             },
@@ -710,16 +704,6 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'type': 'list',
                             },
-                            'replicatedattributelist': {
-                                'description': 'List of replication attribute ithat are not replicated in fractionnal replication.',
-                                'required': False,
-                                'type': 'list',
-                            },
-                            'replicatedattributelisttotal': {
-                                'description': 'List of attributes that are not replicated during a total update.',
-                                'required': False,
-                                'type': 'list',
-                            },
                             'replicatimeout': {
                                 'description': 'The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing.',
                                 'required': False,
@@ -744,6 +728,16 @@ CONTENT_OPTIONS = {
                                 'description': 'The time in milliseconds for which a supplier waits if the consumer is not ready before resending data..',
                                 'required': False,
                                 'type': 'str',
+                            },
+                            'replicatedattributelist': {
+                                'description': 'List of replication attribute ithat are not replicated in fractionnal replication.',
+                                'required': False,
+                                'type': 'list',
+                            },
+                            'replicatedattributelisttotal': {
+                                'description': 'List of attributes that are not replicated during a total update.',
+                                'required': False,
+                                'type': 'list',
                             },
                         },
                     },
@@ -772,7 +766,7 @@ CONTENT_OPTIONS = {
                             'indextype': {
                                 'description': 'Determine the index types (pres,eq,sub,matchingRuleOid).',
                                 'required': True,
-                                'type': 'str',
+                                'type': 'list',
                             },
                             'systemindex': {
                                 'description': 'Tells if the index is a system index.',

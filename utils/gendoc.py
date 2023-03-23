@@ -160,7 +160,7 @@ class Doc(AbstractAnsibleDsParser):
             self.print_choices(option.choice, tab2)
             self.print_item(self.end_list, tab1)
         else:
-            self.print("type", option.type, tab1)
+            self.print("type", option.otype, tab1)
         self.print_item(self.end_dict, tab)
 
     def print_action_entity(self, name, nclass, tab):
@@ -240,6 +240,10 @@ class Spec(Doc):
 #  - ansible_collections/ds389/ansible_ds/plugins/module_utils/ds389_entities.py
 # by using 'make gensrc'
 
+# pylint: disable=line-too-long
+
+"\""This module contains the part of the ds389_module argspec (below ds389 dict)."\""
+
 CONTENT_OPTIONS = {"""
         self.footer = "}"
         self.tab = "    "
@@ -254,17 +258,17 @@ CONTENT_OPTIONS = {"""
         delim = {"\n", "'", '"'}
         if item is None:
             if not skip:
-                print(f"{tab}'{key}':")
+                print(f"{tab}'{key.lower()}':")
         elif isinstance(item, bool):
-            print(f"{tab}'{key}': {item},")
+            print(f"{tab}'{key.lower()}': {item},")
         elif item in ("True", "False"):
-            print(f"{tab}'{key}': {item},")
+            print(f"{tab}'{key.lower()}': {item},")
         elif item in ("{", "(", "["):
-            print(f"{tab}'{key}': {item}")
+            print(f"{tab}'{key.lower()}': {item}")
         elif not set(item).isdisjoint(delim):
-            print(f"{tab}'{key}': {self.doc_delim}{item}{self.doc_delim},")
+            print(f"{tab}'{key.lower()}': {self.doc_delim}{item}{self.doc_delim},")
         else:
-            print(f"{tab}'{key}': '{item}',")
+            print(f"{tab}'{key.lower()}': '{item}',")
 
     def print_choices(self, choices, tab):
         for val in choices:
@@ -354,7 +358,7 @@ class Desc(Doc):
             comment += f"Value may be one of: {option.choice}. "
         if option.vdef:
             comment += f"Default value is: {option.vdef}."
-        self.print_msg(f"| {option.name} | {option.required} | {option.type} | {option.desc} | {comment} |")
+        self.print_msg(f"| {option.name} | {option.required} | {option.otype} | {option.desc} | {comment} |")
 
     def generate(self, tab):
         """Generate ansible option doc from module classes."""

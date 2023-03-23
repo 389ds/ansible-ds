@@ -10,11 +10,9 @@ The following must be installed on the local host:
 - docker client
 - ds389.ansible_ds collection
 
-## Commands to run:
+## Command to run:
 
-../common/run_playbook.sh ../common/create_vms.yml
-../common/run_playbook.sh ../common/install_module.yaml
-../common/run_playbook.sh install_ds_on_vms.yaml
+../common/run_playbook.sh ../common/create_vms.yml ../common/install_module.yaml create_ds_instances.yml
 
 To remove the docker containers:
 ../common/run_playbook.sh ../common/destroy_vms.yml

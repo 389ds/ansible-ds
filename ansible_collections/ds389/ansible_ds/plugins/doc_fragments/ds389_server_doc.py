@@ -157,10 +157,10 @@ options:
       nsslapd_exclude_from_export:
         description: list of attributes that are not exported.
         required: False
-        default: entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn
+        default: entrydn entryid dncomp parentid numSubordinates             tombstonenumsubordinates entryusn
         type: str
       nsslapd_idlistscanlimit:
-        description: The maximum number of entries a given index key may refer before the index is handled as unindexed..
+        description: The maximum number of entries a given index key may refer             before the index is handled as unindexed..
         required: False
         default: 4000
         type: int
@@ -170,7 +170,7 @@ options:
         default: 16777216
         type: int
       nsslapd_lookthroughlimit:
-        description: The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED.
+        description: The maximum number of entries that are looked in search             operation before returning LDAP_ADMINLIMIT_EXCEEDED.
         required: False
         default: 5000
         type: int
@@ -195,7 +195,7 @@ options:
         default: 5000
         type: int
       nsslapd_search_bypass_filter_test:
-        description: Allowed values are: 'on', 'off' or 'verify'. If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries.
+        description: Allowed values are: 'on', 'off' or 'verify'.             If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when             it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates             the filter against the search candidate entries.
         required: False
         default: on
         type: str
@@ -240,7 +240,7 @@ options:
         required: False
         type: int
       self_sign_cert:
-        description: Sets whether the setup creates a self-signed certificate and enables TLS encryption during the installation. The certificate is not suitable for production, but it enables administrators to use TLS right after the installation. You can replace the self-signed certificate with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.
+        description: Sets whether the setup creates a self-signed certificate and             enables TLS encryption during the installation. The certificate is not suitable for production, but it             enables administrators to use TLS right after the installation. You can replace the self-signed certificate             with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by             importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.
         required: False
         type: str
       self_sign_cert_valid_months:
@@ -248,7 +248,7 @@ options:
         required: False
         type: str
       selinux:
-        description: Enables SELinux detection and integration during the installation of this instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment or if using a non root installation.
+        description: Enables SELinux detection and integration during the installation of this             instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to             "False" in a development environment or if using a non root installation.
         required: False
         type: bool
       started:
@@ -257,7 +257,7 @@ options:
         default: True
         type: bool
       strict_host_checking:
-        description: Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false".
+        description: Sets whether the server verifies the forward and reverse record             set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load             balancer, set this parameter to "false". Container installs imply "false".
         required: False
         type: bool
       sysconf_dir:
@@ -265,7 +265,7 @@ options:
         required: False
         type: str
       systemd:
-        description: Enables systemd platform features. If set to "True", ds389_create auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.
+        description: Enables systemd platform features. If set to "True", ds389_create             auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.
         required: False
         type: bool
       tmp_dir:
@@ -299,6 +299,145 @@ options:
             description: DN subtree root of entries managed by this backend..
             required: True
             type: str
+          ChangelogEncryptionAlgorithm:
+            description: Encryption algorithm used to encrypt the changelog..
+            required: False
+            type: str
+          ChangelogMaxAge:
+            description: Changelog record lifetime.
+            required: False
+            type: str
+          ChangelogMaxEntries:
+            description: Max number of changelog records.
+            required: False
+            type: str
+          ChangelogSymetricKey:
+            description: Encryption key (if changelog is encrypted).
+            required: False
+            type: str
+          ChangelogTrimInterval:
+            description: Time (in seconds) between two runs of the changlog trimming. .
+            required: False
+            type: str
+          ReplicaBackoffMax:
+            description: Maximum delay before retrying to send updates after a recoverable failure.
+            required: False
+            type: int
+          ReplicaBackoffMin:
+            description: Minimum time before retrying to send updates after a recoverable failure.
+            required: False
+            type: int
+          ReplicaBindDN:
+            description: DN of the user allowed to replay updates on this replica.
+            required: False
+            type: str
+          ReplicaBindDNGroup:
+            description: DN of the group containing users allowed to replay updates on this replica.
+            required: False
+            type: str
+          ReplicaBindDNGroupCheckInterval:
+            description: Interval between detection of the bind dn group changes.
+            required: False
+            type: int
+          ReplicaBindMethod:
+            description: The bind Method.
+            required: False
+            type: str
+            choices:
+               - SIMPLE
+               - SSLCLIENTAUTH
+               - SASL/GSSAPI
+               - SASL/DIGEST-MD5
+          ReplicaBootstrapBindDN:
+            description: The fallback bind dn used after getting authentication error.
+            required: False
+            type: str
+          ReplicaBootstrapBindMethod:
+            description: The fallback bind method.
+            required: False
+            type: str
+            choices:
+               - SIMPLE
+               - SSLCLIENTAUTH
+               - SASL/GSSAPI
+               - SASL/DIGEST-MD5
+          ReplicaBootstrapCredentials:
+            description: The credential associated with the fallback bind.
+            required: False
+            type: str
+          ReplicaBootstrapTransportInfo:
+            description: The encryption method used on the connection after an authentication error..
+            required: False
+            type: str
+            choices:
+               - LDAP
+               - TLS
+               - SSL
+          ReplicaCredentials:
+            description: The credential associated with the bind.
+            required: False
+            type: str
+          ReplicaHost:
+            description: The target instance hostname.
+            required: False
+            type: str
+          ReplicaId:
+            description: The unique ID for suppliers in a given replication environment (between 1 and 65534)..
+            required: False
+            type: int
+          ReplicaPort:
+            description: Target instance port.
+            required: False
+            type: int
+          ReplicaPreciseTombstonePurging:
+            description: ???.
+            required: False
+            type: str
+          ReplicaProtocolTimeout:
+            description: Timeout used when stopping replication to abort ongoing operations..
+            required: False
+            type: int
+          ReplicaPurgeDelay:
+            description: The maximum age of deleted entries (tombstone entries) and entry state information..
+            required: False
+            type: str
+          ReplicaReferral:
+            description: The user-defined referrals (returned when a write operation is attempted on a hub or a consumer..
+            required: False
+            type: list
+          ReplicaReleaseTimeout:
+            description: The timeout period (in seconds) after which a master will release a replica..
+            required: False
+            type: int
+          ReplicaRole:
+            description: The replica role..
+            required: False
+            type: str
+            choices:
+               - None
+               - supplier
+               - hub
+               - consumer
+          ReplicaTombstonePurgeInterval:
+            description: The time interval in seconds between purge operation cycles..
+            required: False
+            type: int
+          ReplicaTransportInfo:
+            description: The encryption method used on the connection.
+            required: False
+            type: str
+            choices:
+               - LDAP
+               - TLS
+               - SSL
+          ReplicaUpdateSchedule:
+            description: Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing hour, and the numbers 0123456 are the days of the week starting with Sunday..
+            required: False
+            type: list
+          ReplicaWaitForAsyncResults:
+            description: Delay in milliseconds before resending an update if consumer does not acknowledge it..
+            required: False
+            type: int
           chain_bind_dn:
             description: Desc.
             required: False
@@ -309,26 +448,6 @@ options:
             type: str
           chain_urls:
             description: Desc.
-            required: False
-            type: str
-          changelogencryptionalgorithm:
-            description: Encryption algorithm used to encrypt the changelog..
-            required: False
-            type: str
-          changelogmaxage:
-            description: Changelog record lifetime.
-            required: False
-            type: str
-          changelogmaxentries:
-            description: Max number of changelog records.
-            required: False
-            type: str
-          changelogsymetrickey:
-            description: Encryption key (if changelog is encrypted).
-            required: False
-            type: str
-          changelogtriminterval:
-            description: Time (in seconds) between two runs of the changlog trimming. .
             required: False
             type: str
           db_deadlock:
@@ -356,133 +475,6 @@ options:
             required: False
             default: False
             type: str
-          replicabackoffmax:
-            description: Maximum delay before retrying to send updates after a recoverable failure.
-            required: False
-            type: int
-          replicabackoffmin:
-            description: Minimum time before retrying to send updates after a recoverable failure.
-            required: False
-            type: int
-          replicabinddn:
-            description: DN of the user allowed to replay updates on this replica.
-            required: False
-            type: str
-          replicabinddngroup:
-            description: DN of the group containing users allowed to replay updates on this replica.
-            required: False
-            type: str
-          replicabinddngroupcheckinterval:
-            description: Interval between detection of the bind dn group changes.
-            required: False
-            type: int
-          replicabindmethod:
-            description: The bind Method.
-            required: False
-            type: str
-            choices:
-               - SIMPLE
-               - SSLCLIENTAUTH
-               - SASL/GSSAPI
-               - SASL/DIGEST-MD5
-          replicabootstrapbinddn:
-            description: The fallback bind dn used after getting authentication error.
-            required: False
-            type: str
-          replicabootstrapbindmethod:
-            description: The fallback bind method.
-            required: False
-            type: str
-            choices:
-               - SIMPLE
-               - SSLCLIENTAUTH
-               - SASL/GSSAPI
-               - SASL/DIGEST-MD5
-          replicabootstrapcredentials:
-            description: The credential associated with the fallback bind.
-            required: False
-            type: str
-          replicabootstraptransportinfo:
-            description: The encryption method used on the connection after an authentication error..
-            required: False
-            type: str
-            choices:
-               - LDAP
-               - TLS
-               - SSL
-          replicacredentials:
-            description: The credential associated with the bind.
-            required: False
-            type: str
-          replicahost:
-            description: The target instance hostname.
-            required: False
-            type: str
-          replicaid:
-            description: The unique ID for suppliers in a given replication environment (between 1 and 65534)..
-            required: False
-            type: int
-          replicaport:
-            description: Target instance port.
-            required: False
-            type: int
-          replicaprecisetombstonepurging:
-            description: ???.
-            required: False
-            type: str
-          replicaprotocoltimeout:
-            description: Timeout used when stopping replication to abort ongoing operations..
-            required: False
-            type: int
-          replicapurgedelay:
-            description: The maximum age of deleted entries (tombstone entries) and entry state information..
-            required: False
-            type: str
-          replicareferral:
-            description: The user-defined referrals (returned when a write operation is attempted on a hub or a consumer..
-            required: False
-            type: list
-          replicareleasetimeout:
-            description: The timeout period (in seconds) after which a master will release a replica..
-            required: False
-            type: int
-          replicarole:
-            description: The replica role..
-            required: False
-            type: str
-            choices:
-               - None
-               - supplier
-               - hub
-               - consumer
-          replicatombstonepurgeinterval:
-            description: The time interval in seconds between purge operation cycles..
-            required: False
-            type: int
-          replicatransportinfo:
-            description: The encryption method used on the connection.
-            required: False
-            type: str
-            choices:
-               - LDAP
-               - TLS
-               - SSL
-          replicatransportinfo:
-            description: The type of transport used for transporting data to and from the replica..
-            required: False
-            type: str
-            choices:
-               - LDAP
-               - SSL
-               - TLS
-          replicaupdateschedule:
-            description: Time schedule presented as XXXX-YYYY 0123456, where XXXX is the starting hour,YYYY is the finishing hour, and the numbers 0123456 are the days of the week starting with Sunday..
-            required: False
-            type: list
-          replicawaitforasyncresults:
-            description: Delay in milliseconds before resending an update if consumer does not acknowledge it..
-            required: False
-            type: int
           require_index:
             description: Desc.
             required: False
@@ -510,11 +502,11 @@ options:
                    - present
                    - updated
                    - absent
-              replicabinddn:
+              ReplicaBindDN:
                 description: The DN used to connect to the target instance.
                 required: False
                 type: str
-              replicabindmethod:
+              ReplicaBindMethod:
                 description: The bind Method.
                 required: False
                 type: str
@@ -523,11 +515,11 @@ options:
                    - SSLCLIENTAUTH
                    - SASL/GSSAPI
                    - SASL/DIGEST-MD5
-              replicabootstrapbinddn:
+              ReplicaBootstrapBindDN:
                 description: The fallback bind dn used after getting authentication error.
                 required: False
                 type: str
-              replicabootstrapbindmethod:
+              ReplicaBootstrapBindMethod:
                 description: The fallback bind method.
                 required: False
                 type: str
@@ -536,11 +528,11 @@ options:
                    - SSLCLIENTAUTH
                    - SASL/GSSAPI
                    - SASL/DIGEST-MD5
-              replicabootstrapcredentials:
+              ReplicaBootstrapCredentials:
                 description: The credential associated with the fallback bind.
                 required: False
                 type: str
-              replicabootstraptransportinfo:
+              ReplicaBootstrapTransportInfo:
                 description: The encryption method used on the connection after an authentication error..
                 required: False
                 type: str
@@ -548,34 +540,34 @@ options:
                    - LDAP
                    - TLS
                    - SSL
-              replicabusywaittime:
+              ReplicaBusyWaitTime:
                 description: The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access.
                 required: False
                 type: int
-              replicacredentials:
+              ReplicaCredentials:
                 description: The crendential associated with the bind.
                 required: False
                 type: str
-              replicaenabled:
+              ReplicaEnabled:
                 description: A flags telling wheter the replication agreement is enabled or not..
                 required: False
                 type: str
                 choices:
                    - on
                    - off
-              replicaflowcontrolpause:
+              ReplicaFlowControlPause:
                 description: the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached..
                 required: False
                 type: int
-              replicaflowcontrolwindow:
-                description: The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsds5ReplicaFlowControlPause parameter.
+              ReplicaFlowControlWindow:
+                description: The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsDS5ReplicaFlowControlPause parameter.
                 required: False
                 type: int
-              replicahost:
+              ReplicaHost:
                 description: The target instance hostname.
                 required: False
                 type: str
-              replicaignoremissingchange:
+              ReplicaIgnoreMissingChange:
                 description: Tells how the replication behaves when a csn is missing..
                 required: False
                 type: str
@@ -585,31 +577,23 @@ options:
                    - always
                    - on
                    - off
-              replicaport:
+              ReplicaPort:
                 description: Target instance port.
                 required: False
                 type: int
-              replicasessionpausetime:
+              ReplicaSessionPauseTime:
                 description: The amount of time in seconds a supplier should wait between update sessions.
                 required: False
                 type: int
-              replicastripattrs:
+              ReplicaStripAttrs:
                 description: Fractionnal replication attributes that does get replicated if the operation modifier list contains only these agreement.
                 required: False
                 type: list
-              replicatedattributelist:
-                description: List of replication attribute ithat are not replicated in fractionnal replication.
-                required: False
-                type: list
-              replicatedattributelisttotal:
-                description: List of attributes that are not replicated during a total update.
-                required: False
-                type: list
-              replicatimeout:
+              ReplicaTimeout:
                 description: The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing.
                 required: False
                 type: int
-              replicatransportinfo:
+              ReplicaTransportInfo:
                 description: The encryption method used on the connection.
                 required: False
                 type: str
@@ -617,14 +601,22 @@ options:
                    - LDAP
                    - TLS
                    - SSL
-              replicaupdateschedule:
+              ReplicaUpdateSchedule:
                 description: The replication schedule..
                 required: False
                 type: list
-              replicawaitforasyncresults:
+              ReplicaWaitForAsyncResults:
                 description: The time in milliseconds for which a supplier waits if the consumer is not ready before resending data..
                 required: False
                 type: str
+              ReplicatedAttributeList:
+                description: List of replication attribute ithat are not replicated in fractionnal replication.
+                required: False
+                type: list
+              ReplicatedAttributeListTotal:
+                description: List of attributes that are not replicated during a total update.
+                required: False
+                type: list
           indexes:
             description: List of indexes options.
             required: False
@@ -647,7 +639,7 @@ options:
               indextype:
                 description: Determine the index types (pres,eq,sub,matchingRuleOid).
                 required: True
-                type: str
+                type: list
               systemindex:
                 description: Tells if the index is a system index.
                 required: False

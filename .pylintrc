@@ -10,6 +10,11 @@ max-attributes=11
 max-line-length=130
 ignore-long-lines=^\s.*Option.*$
 method-naming-style=camelCase
+max-module-lines=2000
+
+[DESIGN]
+max-returns=8
+
 
 [BASIC]
 

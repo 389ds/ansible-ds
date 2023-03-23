@@ -79,6 +79,7 @@ class _PH:
 
     # The attribute telling that backend is a replica
     REPLICATED = 'replicarole'
+    RID = 'replicaid'
 
     # The usefull keys from invemtory (keys starting with ds389_ are handled dynamically).
     INVENTORY_KEYS = ( 'ansible_verbosity', 'ansible_host', 'ansible_check_mode', 'hostvars' )
@@ -161,6 +162,16 @@ class _PH:
         return arg
 
 
+    @staticmethod
+    def check_replica_roles(bedict, roles):
+        """ Check whether backend replica role is one of the roles."""
+        if _PH.REPLICATED in bedict:
+            for role in roles:
+                if bedict[_PH.REPLICATED].lower() == role:
+                    return True
+        return False
+
+
     def __init__(self, module, hostname, debuglvl, parent=None):
         self.args = {}
         self.host = hostname
@@ -168,6 +179,7 @@ class _PH:
         self.vars = {}
         self.from_inventory = True
         self.debug = debuglvl
+        self.replbes = None # Replica backends
         if parent:
             self.debug_info = parent.debug_info
             self.log = parent.log
@@ -276,9 +288,12 @@ class _PH:
         found = False
         for (befn, bedata) in bedict.items():
             if _PH.target_match(befn, agmt['target']):
+                _PH.log.debug(f"Found target backend {befn} for agmt {agmt}")
                 found = True
                 ragmt = { **agmt, **bedata }
-                ragmt.pop('target')
+                # Remove children list of dicts
+                ragmt.pop('indexes', None)
+                ragmt.pop('agmts', None)
                 agmtlist.append(ragmt)
         if not found:
             _PH.log.debug("Unable to resolve agmt %s. bedict=%s.", agmt, bedict)
@@ -315,9 +330,10 @@ class _PH:
                 if isinstance(var, dict) and _PH.REPLICATED in var:
                     if 'suffix' in var:
                         res[f'{host}.{varname}'] = var
+        self.replbes = res
         _PH.log.debug('get_backends: all replicated backends are %s', res.keys())
         mybes = [ val for key,val in res.items() if key.startswith(f'{self.host}.') ]
-        mysuffixes = [ val['suffix'] for val in mybes if val[_PH.REPLICATED].lower() != 'consumer' ]
+        mysuffixes = [ val['suffix'] for val in mybes if _PH.check_replica_roles(val, ('supplier', 'hub')) ]
         return {key:val for key,val in res.items() if val['suffix'] in mysuffixes}
 
     def process_args(self, task_vars):
@@ -327,7 +343,6 @@ class _PH:
         self.add_debug_info(5, "args.vars", self.vars)
         # module_args is overwritten later on with safe values
         # but lets have the full value in case of exception
-        self.add_debug_info(1, "module_args", {'ds389' : self.args})
         # Eval Jinja2 expression and register variable by full names
         self.common_handling(task_vars)
 
@@ -369,7 +384,32 @@ class _PH:
 
     def validate_topology(self):
         """Perform global topology consistency checks."""
-        pass
+        rids = {} # { "rid::suffix" : bename }
+        errors = []
+        for bevname,bedict in self.replbes.items():
+            suffix = bedict['suffix']
+            try:
+                rid = bedict[_PH.RID]
+            except KeyError:
+                rid = None
+            if _PH.check_replica_roles(bedict, ('supplier',)):
+                if  rid:
+                    key = f'{rid}::{suffix}'
+                    if key in rids:
+                        errors.append((f"Duplicate ReplicaId {rid} for suffix {suffix}.",
+                                       f"Backends {bevname} and {rids[key]} have same ReplicaId."))
+                    else:
+                        rids[key] = bevname
+                else:
+                    errors.append((f"Backend {bevname} is configured as a supplier but has no ReplicaId.",))
+            if _PH.check_replica_roles(bedict, ('hub','consumer')):
+                if  rid:
+                    role = bedict[_PH.REPLICATED]
+                    errors.append((f"Backend {bevname} is configured as a {role} but has a ReplicaID.",))
+            if _PH.check_replica_roles(bedict, ('consumer',)) and "agmts" in bedict:
+                errors.append((f"Backend {bevname} is configured as a consumer but has replica agreements.",))
+        if errors:
+            raise AnsibleError(f'Topology errors: {errors}')
 
 
 class ActionModule(ActionBase):
@@ -409,6 +449,7 @@ class ActionModule(ActionBase):
             args.validate_topology()
 
             module_args = {'ds389' : args.args}
+            args.add_debug_info(1, "module_args", module_args)
             # Call the module on remote host
             module_return = self._execute_module(module_name='ds389.ansible_ds.ds389_module',
                                                  module_args=module_args,
@@ -417,5 +458,5 @@ class ActionModule(ActionBase):
             module_return = { "failed": True, "msg": str(exc) }
         # Then add some additionnal debug data in the result
         for (key,val) in args.debug_info.items():
-            module_return[f'debug-{key}'] = val
+            module_return[f'plugin-{key}'] = val
         return module_return
