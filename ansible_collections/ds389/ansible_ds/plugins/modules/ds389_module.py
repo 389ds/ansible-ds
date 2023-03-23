@@ -333,10 +333,7 @@ def run_module():
         supports_check_mode=True
     )
 
-<<<<<<< HEAD
     result['raw_invocation'] = module.params
-=======
->>>>>>> 8304674 (Issue 31 - Add ds389_info plugin)
     result['invocation'] = safe_dup(module.params)
     content = module.params['ds389']
     fact = module.params['ds389info']
@@ -361,14 +358,9 @@ def run_module():
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     get_log().debug(f"Result is: {json.dumps({**result}, sort_keys=True, indent=4)}")
-<<<<<<< HEAD
     logbuff = str(_logbuff.getvalue())
     if common_params['debuglvl'] >0 and logbuff:
         result['module_debug'] = logbuff
-=======
-    if common_params['debuglvl'] >0 and _logbuff.getvalue():
-        result['debug'] = _logbuff.getvalue()
->>>>>>> 8304674 (Issue 31 - Add ds389_info plugin)
     module.exit_json(**result)
 
 
