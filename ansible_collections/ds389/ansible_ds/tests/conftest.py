@@ -144,9 +144,9 @@ class PlaybookTestEnv:
         self.skip = True
         self.dir = None
         self.pbh = None
-        acdir = Path(IniFileConfig.BASE).parent.parent
-        repodir = acdir.parent
-        tarballpath = Path(f'{acdir}/ds389-ansible_ds-1.0.0.tar.gz')
+        self.docker = False
+        repodir = Path(IniFileConfig.BASE).parent.parent.parent
+        tarballpath = Path(f'{repodir}/ansible_ds.tgz')
         if tarballpath.exists():
             # Create a working directory for running the playbooks
             self.pbh = os.getenv('PLAYBOOKHOME', None)
@@ -181,6 +181,10 @@ class PlaybookTestEnv:
                 file.write(f'cd {self.pbdir}\n')
                 file.write('/bin/rm -rf ansible_collections\n')
                 file.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
+        # Check if docker is available
+        result = subprocess.run(['docker', 'info'], capture_output=True, encoding='utf8', check=False)
+        if result.returncode == 0 and 'Server:' in result.stdout:
+            self.docker = True
 
     def run(self, testitem, playbook):
         """Run a playbook
@@ -200,6 +204,11 @@ class PlaybookTestEnv:
             cmd_dir, pb_name = os.path.split(pb_fullname)
             # Add inventory and vault options
             cmd = cmd + [ '-i', 'inventory', '--vault-password-file', f'{cmd_dir}/../vault.pw' ]
+            # Verify docker presence.
+            if not self.docker:
+                pytest.skip("Inventory tests requires 'docker'")
+                return
+
         cmd.append(pb_name)
         PlaybookTestEnv._remove_all_instances()
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=cmd_dir) # pylint: disable=subprocess-run-check
