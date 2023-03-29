@@ -1,4 +1,8 @@
-- name: Playbook to gather DS instance info
-  hosts: localhost
+---
+- name: Playbook to gather DS instances info
+  hosts: ldapservers
+  become: true
 
-# To Be done
+  tasks:
+    - name: "Gather 389ds instances status and configuration"
+      ds389.ansible_ds.ds389_info:

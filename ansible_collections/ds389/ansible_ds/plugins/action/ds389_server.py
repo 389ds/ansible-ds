@@ -288,7 +288,7 @@ class _PH:
         found = False
         for (befn, bedata) in bedict.items():
             if _PH.target_match(befn, agmt['target']):
-                _PH.log.debug(f"Found target backend {befn} for agmt {agmt}")
+                _PH.log.debug("Found target backend %s for agmt %s", befn, agmt)
                 found = True
                 ragmt = { **agmt, **bedata }
                 # Remove children list of dicts

@@ -42,7 +42,7 @@ prereq:
 
 lint:
     # Lets exclude the plugins code until we have done a code cleanup
-	pylint --rcfile $(PWD)/.pylintrc $$(find . -name '*.py' | grep -v plugins)
+	pylint .
 
 github_pylint: lint
 

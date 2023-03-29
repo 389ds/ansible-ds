@@ -7,6 +7,8 @@
 #
 #
 
+"""This module provides utility classes and function useful for ansible_ds."""
+
 DOCUMENTATION = r'''
 ---
 module: ds389_entities
@@ -17,7 +19,6 @@ version_added: "1.0.0"
 
 description:
     - setLogger function:     an utility function to initialize the log framework
-    - NormalizedDict class:   a dict whose keys are normalized
     - LdapOp class:           the class reprensenting an ldap operation in YAML
     - Entry class:            the class storing an ldap entry within ansible-ds
     - DiffResult class:       the class used to store dse.ldif differences
@@ -27,8 +28,8 @@ author:
     - Pierre Rogier (@progier389)
 
 requirements:
-    - python >= 3.9
     - python3-lib389 >= 2.2
+    - python >= 3.9
     - 389-ds-base >= 2.2
 '''
 
@@ -42,17 +43,12 @@ requirements:
 import sys
 import os
 import re
-import json
-import glob
-import ldif
-import ldap
-import yaml
 import logging
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass
-from datetime import datetime
-from lib389 import DirSrv
-from lib389.utils import ensure_str, ensure_bytes, ensure_list_str, ensure_list_bytes, normalizeDN, escapeDNFiltValue
-from ldap.ldapobject import SimpleLDAPObject
+import ldap
+import ldif
+from lib389.utils import ensure_str, ensure_list_bytes
 
 # dse.ldif important object classes
 CLASSES = (
@@ -89,12 +85,16 @@ _log = None
 
 
 def init_log(name, stream=sys.stderr):
+    # pylint: disable=global-statement
     global _log
+    # pylint: enable=global-statement
     _log = logging.getLogger(name)
+    _log.setLevel(logging.DEBUG)
     logh = logging.StreamHandler(stream)
     fmt = '[%(asctime)s] %(levelname)s - %(filename)s[%(lineno)d]: %(message)s'
     datefmt = '%Y/%m/%d %H:%M:%S %z'
     logh.setFormatter(logging.Formatter(fmt, datefmt))
+    logh.setLevel(logging.DEBUG)
     _log.addHandler(logh)
     elogh = logging.StreamHandler(sys.stderr)
     elogh.setLevel(logging.ERROR)
@@ -102,7 +102,10 @@ def init_log(name, stream=sys.stderr):
     _log.addHandler(elogh)
     _log.setLevel(logging.ERROR)
 
+
 def get_log():
+    if not _log:
+        init_log("Bootstrap")
     return _log
 
 
@@ -155,12 +158,18 @@ def search_ext_s(inst, *args, **kwargs):
     return _ldap_op_s(inst, inst.search_ext_s, 'search_ext_s', *args, **kwargs)
 
 
+@dataclass
 class Key(str):
     """A normalizable string (typically an entry dn or an attribute name)."""
 
     @staticmethod
     def from_val(val):
         """This methods returns a key if val is a string."""
+        if isinstance(val, bytes):
+            try:
+                val = val.decode('utf-8')
+            except UnicodeError:
+                pass
         if isinstance(val, str) and not isinstance(val, Key):
             return Key(val)
         return val
@@ -170,21 +179,25 @@ class Key(str):
         str.__init__(astring)
         self._astring = astring
         try:
-            self.normalized = ldap.dn.dn2str(ldap.dn.str2dn(astring.lower()))
+            nkey = ldap.dn.dn2str(ldap.dn.str2dn(astring.lower()))
+            for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
+                nkey = nkey.replace(k, v)
+            self.normalized = nkey
         except ldap.DECODING_ERROR:
             self.normalized = astring.lower()
 
     def __hash__(self) -> 'int':
         return hash(self.normalized)
 
-    def __eq__(self, other:'object') -> 'bool':
+    def __eq__(self, other):
         if not isinstance(other, str):
             return False
         return self.normalized == Key.from_val(other).normalized
 
-    def decode(self,encoding):
+    def decode(self,encoding, *args):
         """Works around ensure_str bug (that call decode if type is not str)."""
         del encoding # Avoid lint warning.
+        del args # Avoid lint warning.
         return self
 
     def __str__(self):
@@ -193,97 +206,9 @@ class Key(str):
     def __repr__(self):
         return str.__repr__(self._astring)
 
+    def __lt__(self, obj):
+        return self.normalized.__lt__(Key.from_val(obj).normalized)
 
-
-@dataclass
-class NormalizedDict(dict):
-    """
-        A dict with normalized key stored in hash table
-        Note: The original version of the key (or the first one
-        in case of duplicates) is returned when walking the dict
-    """
-    yaml_tag = u'tag:yaml.org,2002:map'
-
-    def __init__(self, *args):
-        self.dict = {}         # The map: original-key --> value
-        self.norm2keys = {}    # The map: normalized-key --> original-key
-
-    def __getstate__(self):
-        return { ** self.dict }
-
-    def normalize(key):
-        nkey = None
-        if key:
-            nkey = ensure_str(key).lower()
-            if re.match("^[a-z][a-z0-9-]* *= .*", nkey):
-                nkey = normalizeDN(key)
-            for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
-                nkey = nkey.replace(k, v)
-            #_log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
-        return nkey
-
-    def get(self, key):
-        return self[key]
-
-    def update(self, key, value):
-        self[key] = value
-
-    def has_key(self, key):
-        nk = NormalizedDict.normalize(key)
-        return NormalizedDict.normalize(key) in self.norm2keys
-
-    def keys(self):
-        return dict.keys(self.dict)
-
-    def __next__(self):
-        return dict.__next__(self.dict)
-
-    def __iter__(self):
-        return dict.__iter__(self.dict)
-
-    def items(self):
-        return dict.items(self.dict)
-
-    def values(self):
-        return dict.values(self.dict)
-
-    def __setitem__(self, key, value):
-        nk = NormalizedDict.normalize(key)
-        if nk not in self.norm2keys:
-            self.norm2keys[nk] = key
-        self.dict[self.norm2keys[nk]] = value
-
-    def __repr__(self):
-        return str(self.dict)
-
-    def __getitem__(self, key):
-        return self.dict[self.norm2keys[NormalizedDict.normalize(key)]]
-
-    def __delitem__(self, key):
-        nk = NormalizedDict.normalize(key)
-        fk = self.norm2keys[nk]
-        del self.norm2keys[nk]
-        del self.dict[fk]
-
-    def clear(self):
-        self.dict.clear()
-        self.norm2keys.clear()
-
-    def copy(self):
-        newDict = NormalizedDict()
-        newDict.dict = self.dict.copy()
-        newDict.norm2keys = self.norm2keys.copy()
-
-    def pop(self, key, *args):
-        try:
-            val = self[key]
-            self.__delitem__(key)
-        except KeyError as e:
-            if len(args) == 0:
-                raise e
-            else:
-                val = args[0]
-        return val
 
 # Following methods are inherited from dict:
 #
@@ -301,9 +226,6 @@ class LdapOp():
         Note: The original version of the key (or the first one
         in case of duplicates) is returned when walking the dict
     """
-    yaml_tag = u'!ds389LdapOp'
-    yaml_loader = yaml.SafeLoader
-
     ADD_ENTRY = "AddEntry"
     DEL_ENTRY = "DeleteEntry"
     ADD_VALUES = "AddValues"
@@ -311,7 +233,7 @@ class LdapOp():
     REPLACE_VALUES = "ReplaceValues"
 
 
-    def __init__(self, op, dn):
+    def __init__(self, op:str, dn:str):
         self.___opinfo = {
             LdapOp.ADD_ENTRY : { 'changetype' : 'add', 'attrtype': None, 'apply' : self._ldap_add, 'ldaptype': None},
             LdapOp.DEL_ENTRY : { 'changetype' : 'delete', 'attrtype': None, 'apply' : self._ldap_del, 'ldaptype': None },
@@ -324,34 +246,30 @@ class LdapOp():
         }
         assert op in self.___opinfo
         super().__init__()
-        self.dn = dn
+        self.dn: Key = Key.from_val(dn)
         self.op = op
-        self.attrs = NormalizedDict()
-        self.nvals = {}
+        self.attrs = {}
 
     def add_values(self, attr, vals):
         for val in vals:
             self.add_value(attr, val)
 
-    def add_value(self, attr, val):
-        nattr = NormalizedDict.normalize(attr)
-        nval = NormalizedDict.normalize(ensure_str(val))
-        if not self.attrs.has_key(attr):
+    def add_value(self, attr:str, val:str):
+        attr = Key.from_val(attr)
+        val = Key.from_val(val)
+
+        if attr not in self.attrs:
             self.attrs[attr] = []
-            self.nvals[nattr] = []
-        s = self.attrs[attr]
-        nv = self.nvals[nattr]
-        if nval in nv:
-            raise ldap.TYPE_OR_VALUE_EXISTS(f"while trying to add: dn={dn} attr={attr} val={val}")
-        s.append(val)
-        nv.append(nval)
+        if val in self.attrs[attr]:
+            raise ldap.TYPE_OR_VALUE_EXISTS(f"while trying to add: dn={self.dn} attr={attr} val={val}")
+        self.attrs[attr].append(val)
 
     def to_ldif(self, fout):
         opinfo = self.___opinfo[self.op]
         fout.print(f"dn: {self.dn}")
         fout.print(f"changetype: {opinfo['changetype']}")
         first = True
-        for attr in self.attrs.keys():
+        for attr,vals in self.attrs.items():
             attrtype = opinfo['attrtype']
             if attrtype:
                 if first:
@@ -359,14 +277,13 @@ class LdapOp():
                 else:
                     fout.print(f"dn: {self.dn}")
                 fout.print(f"{attrtype}: {attr}")
-            for val in self.attrs[attr]:
+            for val in vals:
                 fout.print(f"{attr}: {val}")
 
     def to_ldap_mods(self):
         mods = []
         opinfo = self.___opinfo[self.op]
-        for attr in self.attrs.keys():
-            vals = self.attrs[attr]
+        for attr, vals in self.attrs.items():
             if opinfo['ldaptype']:
                 mods.append( (opinfo['ldaptype'], attr, ensure_list_bytes(vals)) )
             else:
@@ -385,6 +302,7 @@ class LdapOp():
         opinfo = self.___opinfo[self.op]
         opinfo['apply'](self, dirSrv)
 
+    @staticmethod
     def apply_list_op(listOp, dirSrv):
         for op in listOp:
             op.apply(dirSrv)
@@ -399,57 +317,43 @@ class LdapOp():
         return { **self._d('yaml_tag'), **self._d('op'), **self._d('dn'), **self._d('attrs') }
 
     def __repr__(self):
-        if mods in self.__dict__:
-            return f"({op} dn={dn} attrs={attrs})"
+        return f"({self.op} dn={self.dn} attrs={self.attrs})"
 
-    def getAttrIterator(self, normalize=False):
-        if normalize:
-            return self.nvals.keys()
-        else:
-            return self.attrs.keys()
+    def getAttrIterator(self):
+        return self.attrs.keys()
 
-    def getValues(self, attr, normalize=False):
-        if not self.attrs.has_key(attr):
+    def getValues(self, attr):
+        if attr not in self.attrs:
             return []
-        if normalize == False:
-            return self.attrs[attr]
-        else:
-            return self.nvals[NormalizedDict.normalize(attr)]
+        return self.attrs[attr]
 
-    def getvalIterator(self, attr, normalize=False):
-        if not self.attrs.has_key(attr):
+    def getvalIterator(self, attr):
+        if attr not in self.attrs:
             return []
-        if normalize == False:
-            for val in self.attrs[attr]:
-                yield (attr, val)
-        else:
-            attr = NormalizedDict.normalize(attr)
-            for val in self.nvals[attr]:
-                yield (attr, val)
+        return self.attrs[attr].values()
 
-
-    def getAttrValIterator(self, normalize=False):
-        if normalize == False:
-            for attr in self.attrs.keys():
-                for val in self.attrs[attr]:
-                    yield (attr, val)
-        else:
-            attr = NormalizedDict.normalize(attr)
-            for attr in self.nvals.keys():
-                for val in self.nvals[attr]:
-                    yield (attr, val)
+    def getAttrValIterator(self):
+        for attr,val in self.attrs.items():
+            yield (attr, val)
 
     def has_attr(self, attr):
-        return self.attrs.has_key(attr)
+        return attr in self.attrs
 
 
 class Entry:
     def __init__(self, dn, attributes):
-        self._op = LdapOp(LdapOp.ADD_ENTRY, dn)
-        self._ndn = NormalizedDict.normalize(dn)
+        self.op = LdapOp(LdapOp.ADD_ENTRY, Key.from_val(dn))
         for attr, vals in attributes.items():
-            self._op.add_values(attr, vals)
+            self.op.add_values(Key.from_val(attr), vals)
 
+    @staticmethod
+    def get_values(entry, attr):
+        attr = Key.from_val(attr)
+        if entry and entry.hasAttr(attr):
+            return entry.op.attrs[attr]
+        return None
+
+    @staticmethod
     def fromDS(dirSrv, dn):
         try:
             entry = dirSrv.search_ext_s(dn, ldap.SCOPE_BASE, 'objectclass=*', escapehatch='i am sure')[0]
@@ -459,38 +363,26 @@ class Entry:
             return None
 
     def getDN(self):
-        return self._op.dn
-
-    def getNDN(self):
-        return self._ndn
-
-    def normalize(self, val):
-        return self._attrs.normalize(ensure_str(val))
-
-    def getNormalizedAttributes(self):
-        return [ i for i in self._op.getAttrIterator(True) ]
-
-    def getNormalizedValues(self, attr):
-        return [ i for i in self._op.getvalIterator(attr, True) ]
+        return self.op.dn
 
     def hasValue(self, attr, val):
-        if self._op.attrs.has_key(attr):
-            v = NormalizedDict.normalize(val) in self._op.getValues(attr, True)
-            return v
+        if Key.from_val(attr) in self.op.attrs:
+            return Key.from_val(val) in self.op.attrs[attr]
         return False
 
     def hasAttr(self, attr):
-        return self._op.has_attr(attr)
+        return Key.from_val(attr) in self.op.attrs
 
     def hasObjectclass(self, c):
         return self.hasValue('objectclass', c)
 
     def __repr__(self):
-        return f"Entry({self._op.dn}, {self._op.attrs})"
+        return f"Entry({self.op.dn}, {self.op.attrs})"
 
     def get(self, attr):
+        attr = Key.from_val(attr)
         if self.hasAttr(attr):
-            return self._op.getValues(attr)
+            return self.op.getValues(attr)
         return None
 
     def getSingleValue(self, attr):
@@ -502,14 +394,14 @@ class Entry:
 
     def hasSameAttributes(self, entry, attrlist=None):
         if attrlist is None:
-            return self._attrs == entry._attrs
+            return self.op.attrs == entry.attrs
         for attr in attrlist:
-            if self.getNormalizedValues(attr).sort() != entry.getNormalizedValues(attr).sort():
+            if self.op.getValues(attr).sort() != entry.op.getValues(attr).sort() :
                 return False
         return True
 
     def getAttributes(self):
-            return self._op.getAttrIterator()
+        return self.op.getAttrIterator()
 
 
 class DiffResult:
@@ -521,7 +413,7 @@ class DiffResult:
     ACTIONS = ( ADDENTRY, DELETEENTRY, ADDVALUE, DELETEVALUE, REPLACEVALUE)
 
     def __init__(self):
-        self.result = NormalizedDict()
+        self.result = {}
 
     def toYaml(self):
         return self.result
@@ -529,32 +421,40 @@ class DiffResult:
     def __str__(self):
         return str(self.result)
 
-    def getValue(dict, key):
-        if not dict.has_key(key):
+    @staticmethod
+    def getValue(adict, key):
+        key = Key.from_val(key)
+        if key not in adict:
             return None
-        return dict[key]
+        return adict[key]
 
-    def getDict(dict, key):
-        if not dict.has_key(key):
-            dict[key] = NormalizedDict()
-        return dict[key]
+    @staticmethod
+    def getDict(adict, key):
+        if key not in adict:
+            adict[key] = {}
+        return adict[key]
 
-    def getList(dict, key):
-        if not dict.has_key(key):
-            dict[key] = []
-        return dict[key]
+    @staticmethod
+    def getList(adict, key):
+        key = Key.from_val(key)
+        if not key in adict:
+            adict[key] = []
+        return adict[key]
 
-    def addModifier(dict, dn, action, attr, val):
-        assert (action in DiffResult.ACTIONS)
-        if action == "deleteEntry":
-            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), "fullRemoval").append(True)
+    @staticmethod
+    def addModifier(adict, dn, action, attr, val):
+        get_log().debug('addModifier dn=%s action=%s attr=%s val=%s', dn, action, attr, val)
+        assert action in DiffResult.ACTIONS
+        if action == DiffResult.DELETEENTRY:
+            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(adict, dn), action), "fullRemoval").append(True)
         else:
-            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(dict, dn), action), attr).append(ensure_str(val))
+            DiffResult.getList(DiffResult.getDict(DiffResult.getDict(adict, dn), action), attr).append(Key.from_val(val))
 
     def addAction(self, action, dn, attr, val):
         # result = { dn : { action: { attr : [val] } } }
         DiffResult.addModifier(self.result, dn, action, attr, val)
 
+    @staticmethod
     def match(dn, pattern_list, flags=0):
         for pattern in pattern_list:
             m = re.match(pattern.replace('\\', '\\\\'), dn, flags)
@@ -565,46 +465,42 @@ class DiffResult:
     def cloneDN(self, fromDict, dn):
         for action in fromDict[dn]:
             for attr in fromDict[dn][action]:
-                self.addAction(action, dn, attr, None)
+                self.addAction(action, dn, attr, [])
                 self.result[dn][action][attr] = fromDict[dn][action][attr][:]
 
     def getSingleValuedValue(self, dn, attr):
-        op = None
-        val = None
+        dn = Key.from_val(dn)
+        attr = Key.from_val(attr)
         if dn and attr:
             for action in DiffResult.ACTIONS:
-                if self.result.has_key(dn) and self.result[dn].has_key(action) and self.result[dn][action].has_key(attr):
+                if dn in self.result and action in self.result[dn] and attr in self.result[dn][action]:
                     assert len(self.result[dn][action][attr]) == 1
-                    return (action, self.result[dn][action][attr][0])
+                    val = self.result[dn][action][attr][0]
+                    if isinstance(val, Key):
+                        val = str(val)
+                    return (action, val)
         return (None, None)
 
-    def diffAttr(self, attr, e1, e2):
-        if e1 is None:
-            a1 = None
-        else:
-            a1 = attr
-        if e2 is None:
-            a2 = None
-        else:
-            a2 = attr
-        if a1 is None:
-            self.addAction(DiffResult.DELETEVALUE, e2.getDN(), attr, None)
-            return
-        if a2 is None:
-            for val in e1.attrdict[attr]:
-                self.addAction(DiffResult.ADDVALUE, e1.getDN(), e1.attrnames[attr], val)
-            return
+    def diffAttr(self, attr:str, e1:Entry, e2:Entry):
+        a1 = Entry.get_values(e1, attr)
+        a2 = Entry.get_values(e2, attr)
         if a1 != a2:
-            if (len(a1) == 1 and len(a2) == 1):
-                val = e1.get(attr)
-                self.addAction(DiffResult.REPLACEVALUE, e1.getDN(), e1.attrnames[attr], val)
+            if a1 is None:
+                self.addAction(DiffResult.DELETEVALUE, e2.getDN(), attr, None)
                 return
-            for val in e1.get(attr):
+            if a2 is None:
+                for val in e1.op.attrs[attr]:
+                    self.addAction(DiffResult.ADDVALUE, e1.getDN(), attr, val)
+                return
+            if (len(a1) == 1 and len(a2) == 1):
+                self.addAction(DiffResult.REPLACEVALUE, e1.getDN(), attr, a1)
+                return
+            for val in a1:
                 if not e2.hasValue(attr, val):
-                    self.addAction(DiffResult.ADDVALUE, e1.getDN(), e1.attrnames[attr], val)
-            for val in e2.get(attr):
+                    self.addAction(DiffResult.ADDVALUE, e1.getDN(), attr, val)
+            for val in a2:
                 if not e1.hasValue(attr, val):
-                    self.addAction(DiffResult.DELETEVALUE, e1.getDN(), e1.attrnames[attr], val)
+                    self.addAction(DiffResult.DELETEVALUE, e1.getDN(), attr, val)
 
     def diffEntry(self, e1, e2):
         if e1 is None:
@@ -626,13 +522,11 @@ class DiffResult:
         dnsDict = {}
 
         for e in entry1Dict.values():
-            ndn = e._ndn
-            dnsList.append(ndn)
-            dnsDict[ndn] = True
+            dnsList.append(e.getDN())
+            dnsDict[e.getDN()] = True
         for e in entry2Dict.values():
-            ndn = e._ndn
-            if not e._ndn in dnsDict:
-                dnsList.append(ndn)
+            if not e.getDN() in dnsDict:
+                dnsList.append(e.getDN())
         for dn in dnsList:
             self.diffEntry(DiffResult.getValue(entry1Dict, dn), DiffResult.getValue(entry2Dict, dn))
 
@@ -641,19 +535,19 @@ class DSE:
         self.dsePath = dsePath
         # Count entries in dse.ldif
         nbentries = 0
-        with open(dsePath, 'r') as f:
-            for line in f:
+        with open(dsePath, 'r', encoding='utf-8') as dsefd:
+            for line in dsefd:
                 if line.startswith('dn:'):
                     nbentries = nbentries + 1
-        # Parse dse.ldif
-        with open(dsePath, 'r') as f:
-            dse_parser = ldif.LDIFRecordList(f, ignored_attr_types=IGNOREATTRS, max_entries=nbentries)
+            # Parse dse.ldif
+            dsefd.seek(0)
+            dse_parser = ldif.LDIFRecordList(dsefd, ignored_attr_types=IGNOREATTRS, max_entries=nbentries)
             if dse_parser is None:
                 return
             dse_parser.parse()
         # And generap the entries maps
         dse = dse_parser.all_records
-        self.dn2entry = NormalizedDict()      # dn --> entry map
+        self.dn2entry = {}                    # dn --> entry map
         self.class2dn = {}                    # class -> dn map
         for c in CLASSES:
             self.class2dn[c] = []
@@ -663,21 +557,22 @@ class DSE:
             e = Entry(dn, entry)
             e.id = entryid
             entryid = entryid + 1
-            self.dn2entry[e.getNDN()] = e
+            self.dn2entry[e.getDN()] = e
             found_class = 'other'
             for c in CLASSES:
                 if e.hasObjectclass(c) is True:
                     found_class = c
-            self.class2dn[found_class].append(e.getNDN())
+            self.class2dn[found_class].append(e.getDN())
 
     def getEntryDict(self):
         return self.dn2entry
 
+    @staticmethod
     def fromLines(lines):
         ### Transform list of lines into DSE
         with TemporaryDirectory() as tmp:
             dsePath = os.path.join(tmp, 'dse.ldif')
-            with open(dsePath, 'w') as f:
+            with open(dsePath, 'w', encoding='utf-8') as f:
                 f.write(lines)
             return DSE(dsePath)
 
@@ -685,10 +580,10 @@ class DSE:
         return str(self.dn2entry)
 
     def getEntry(self, dn):
-        if self.dn2entry.has_key(dn):
+        dn = Key.from_val(dn)
+        if dn in self.dn2entry:
             return self.dn2entry[dn]
-        else:
-            return None
+        return None
 
     def getSingleValue(self, dn, attr):
         entry = self.getEntry(dn)

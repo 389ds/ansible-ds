@@ -25,7 +25,7 @@ from lib389.properties import SER_SERVERID_PROP
 DIRECTORY_MANAGER_PASSWORD = "secret12"
 
 common_args = {
-    "ansible_verbosity" : 0,
+    "ansible_verbosity" : 5,
     "ansible_check_mode" : False,
 }
 

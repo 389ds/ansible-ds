@@ -1,13 +1,10 @@
 #!/usr/bin/python3
-""" This module manage the 389ds instances configuration."""
 # -*- coding: utf-8 -*
-# --- BEGIN COPYRIGHT BLOCK ---
-# Copyright (C) 2022 Red Hat, Inc.
-# All rights reserved.
-#
+
+# Copyright: Contributors to the Ansible project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
-# --- END COPYRIGHT BLOCK ---
-#
+
+""" This module manage the 389ds instances configuration."""
 
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
@@ -17,6 +14,139 @@ ANSIBLE_METADATA = {
     "supported_by": "community",
     "status": ["preview"],
 }
+
+DOCUMENTATION = r'''
+---
+module:ds389_module
+
+short_description: This module provides method manage 389ds instances configuration.
+description:
+    This module allow to:
+    - Create or remove ldap server instances and update their configuration.
+    - Update the state of the ds389 (or RHDS) instances on the local host.
+    - Gather instances status and configuration.
+version_added: 1.0.0
+extends_documentation_fragment:
+  - ds389_server_doc
+
+options:
+    ds389:
+      description: This option is added by ds389_server plugin and contains the options that are needed to configure 389ds instances.
+      type: dict
+      suboptions: See the ds389_server_doc documentation fragment.
+    ds389info:
+      description: This option is added by ds389_info plugin and contains the options that are needed to gather 389ds instances configuration.
+      type: dict
+      suboptions:
+        ds389_prefix:
+        description: The 389ds installation prefix
+        type: path
+
+author:
+    - Pierre Rogier (@progier389)
+
+requirements:
+    - python3-lib389 patch from https://github.com/ds389/389-ds-base/pull/5253
+    - python >= 3.9
+    - python3-lib389 >= 2.2
+    - 389-ds-base >= 2.2
+'''
+
+EXAMPLES = r'''
+# Create a set of DS instances
+- name: Playbook to create a set of DS instances
+  hosts: ldapservers
+  become: true
+
+  tasks:
+    - name: "Create 389ds instances according to the inventory"
+      ds389.ansible_ds.ds389_server:
+
+# Remove all DS instances
+- name: Playbook to remove all DS instances
+  hosts: ldapservers
+  become: true
+
+  tasks:
+    - name: "Remove all 389ds instances on targeted hosts"
+      ds389.ansible_ds.ds389_server:
+        state: absent
+
+# Playbook to gather DS instances info
+- name: Playbook to gather DS instances info
+  hosts: ldapservers
+  become: true
+
+  tasks:
+    - name: "Gather 389ds instances status and configuration"
+      ds389.ansible_ds.ds389_info:
+'''
+
+RETURN = r'''
+# These are examples of possible return values, and in general should use other names for return values.
+original_message:
+    description: The original name param that was passed in.
+    type: str
+    returned: always
+    sample: {
+        "state": "present",
+        "ds389_server_instances": [
+            {
+                "state": "present",
+                "backends": [
+                    {
+                        "state": "present",
+                        "indexes": [ ],
+                        "suffix": "dc=example,dc=com",
+                        "name": "userroot"
+                    }
+                ],
+                "started": "true",
+                "dseMods": null,
+                "rootpw": "secret12",
+                "port": "38901",
+                "secure_port": "63601",
+                "name": "i1"
+            },
+            {
+                "state": "present",
+                "backends": [
+                    {
+                        "state": "present",
+                        "indexes": [ ],
+                        "suffix": "dc=example,dc=com",
+                        "name": "userroot"
+                    }
+                ],
+                "started": "true",
+                "dseMods": null,
+                "rootpw": "secret12",
+                "port": "38902",
+                "secure_port": "63602",
+                "name": "i2"
+            }
+        ],
+        "ds389_server_prefix": "/home/progier/sb/ai1/tst/ci-install"
+    }
+
+message:
+    description: The list containing messages about changes
+    type: list
+    returned: always
+    sample: [
+        "Creating instance slapd-i1",
+        "Set nsslapd-port:38901 in cn=config",
+        "Set nsslapd-secureport:63601 in cn=config",
+        "Creating backend userroot on suffix dc=example,dc=com",
+        "Set nsslapd-suffix:dc=example,dc=com in cn=userroot,cn=ldbm database,cn=plugins,cn=config",
+        "Creating instance slapd-i2",
+        "Set nsslapd-port:38902 in cn=config",
+        "Set nsslapd-secureport:63602 in cn=config",
+        "Creating backend userroot on suffix dc=example,dc=com",
+        "Set nsslapd-suffix:dc=example,dc=com in cn=userroot,cn=ldbm database,cn=plugins,cn=config"
+     ]
+
+'''
 
 
 
@@ -68,7 +198,7 @@ def safe_dup_keyval(key, val):
     """Duplicate dict val and hide values associated with HIDDEN_ARGS."""
     if key.lower() in HIDDEN_ARGS:
         return "******"
-    return val
+    return safe_dup(val)
 
 
 def safe_dup(src):
@@ -129,8 +259,6 @@ def handle_common_parameters(params):
         os.environ['PREFIX'] = prefix
     res['prefix'] = prefix
     debuglvl = params['ansible_verbosity']
-    with open("/tmp/l", "w") as f:
-        f.write(f"debuglvl={debuglvl}\n")
     if debuglvl >= 4:
         get_log().setLevel(logging.DEBUG)
         os.environ['DEBUGGING'] = '1' # Enable lib389 debug logs
@@ -144,7 +272,6 @@ def handle_common_parameters(params):
     for key in COMMON_OPTIONS.keys():
         params.pop(key, None)
     return res
-            
 
 
 def run_module():
@@ -199,16 +326,12 @@ def run_module():
         if logbuff:
             result['module_debug'] = logbuff
         result['exception'] = exc
-        with open("/tmp/l", "a") as f:
-            f.write(f"DEBUG {logbuff}\n")
         module.fail_json('ds389_module failed', **result)
 
     #prefix in the event of a successful module execution, you will want to
     # simple AnsibleModule.exit_json(), passing the key/value results
     get_log().debug(f"Result is: {json.dumps({**result}, sort_keys=True, indent=4)}")
     logbuff = str(_logbuff.getvalue())
-    with open("/tmp/l", "a") as f:
-        f.write(f"DEBUG {logbuff}\n")
     if common_params['debuglvl'] >0 and logbuff:
         result['module_debug'] = logbuff
     module.exit_json(**result)
