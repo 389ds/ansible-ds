@@ -47,6 +47,7 @@ author:
 
 requirements:
     - python3-lib389 patch from https://github.com/389ds/389-ds-base/pull/5253
+
     - python >= 3.9
     - python3-lib389 >= 2.2
     - 389-ds-base >= 2.2
