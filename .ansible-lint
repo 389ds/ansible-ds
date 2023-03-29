@@ -3,6 +3,7 @@ exclude_paths:
   - .github/
   - .pylintrc
   - utils/
+  - '*/testds389_vault.yaml'
 
 parseable: true
 quiet: false
@@ -13,6 +14,9 @@ skip_list:
   - '301'  # Commands should not change things if nothing needs doing'
   - '305'  # Use shell only when shell functionality is required
   - '306'  # risky-shell-pipe
+  - '403'  # package-latest: Package installs should not use latest.
   - experimental   # Do not run any experimental tests
   - name[template] # Allow Jinja templating inside task names
-
+  - yaml[brackets] # Work around what seems an ansible-lint bug:
+                   # I got this error in roles tasks even if there is no brackets
+  - meta-runtime[unsupported-version] # Was not able to find a supported version

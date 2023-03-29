@@ -88,9 +88,10 @@ jobs:
       run: |
         set -x
         CID=$(sudo docker run -d -h server.example.com --ulimit core=-1 --cap-add=SYS_PTRACE --privileged --rm --shm-size=4gb -v ${PWD}:/workspace quay.io/389ds/ci-images:test)
-        sudo docker exec $CID sh -c "dnf install -y -v 389-ds-base python3-lib389 python3-pip python3-pytest ansible"
-        sudo docker exec $CID sh -c "systemctl start dbus.service"
-        sudo docker exec $CID sh -c "mkdir -p /workspace/assets/cores && chmod 777 /workspace{,/assets{,/cores}}"
+        sudo docker exec $CID sh -x -c "dnf install -y -v 389-ds-base python3-lib389 python3-pip python3-pytest ansible"
+        sudo docker exec $CID sh -x -c "systemctl start dbus.service"
+        sudo docker exec $CID sh -x -c "mkdir -p /workspace/assets/cores && chmod 777 /workspace{,/assets{,/cores}}"
+        sudo docker exec $CID sh -x -c "ansible-galaxy collection install /workspace/ansible_ds.tgz -f"
         sudo docker exec $CID py.test  --suppress-no-test-exit-code  -m "not flaky" --junit-xml=pytest.xml --html=pytest.html -v ansible_collections/ds389/ansible_ds/tests/${{ matrix.suite }}
 
     - name: Make the results file readable by all

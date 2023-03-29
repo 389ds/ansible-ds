@@ -1,10 +1,9 @@
 ---
 - name: Playbook to remove all DS instances
-  hosts: localhost
+  hosts: ldapservers
+  become: true
 
-  collections:
-    - ds389.ansible_ds
-
-  roles:
-    - role: ds389_server
-      state: absent
+  tasks:
+    - name: "Remove all 389ds instances on targeted hosts"
+      ds389.ansible_ds.ds389_server:
+        state: absent

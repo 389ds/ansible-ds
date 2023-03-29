@@ -5,8 +5,8 @@ version: 1.0.0
 description: A set to install and deploy 389 Directory Server
 
 authors:
-- Pierre Rogier <progier@redhat.com>
-- Simon Pichugin <spichugi@redhat.com>
+  - Pierre Rogier <progier@redhat.com>
+  - Simon Pichugin <spichugi@redhat.com>
 
 repository: https://github.com/ds389/ansible-ds
 documentation: https://github.com/ds389/ansible-ds/blob/main/README.md
@@ -15,7 +15,7 @@ issues: https://github.com/ds389/ansible-ds/issues
 
 readme: README.md
 license:
-- GPL-3.0-or-later
+  - GPL-3.0-or-later
 
 tags:
   - "linux"
@@ -24,7 +24,6 @@ tags:
   - "ldap"
   - "collection"
 
-build_ignore: 
+build_ignore:
   - 'tests*'
   - '*.tmpl'
-

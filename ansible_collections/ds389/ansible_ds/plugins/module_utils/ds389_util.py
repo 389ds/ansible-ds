@@ -32,6 +32,12 @@ requirements:
     - 389-ds-base >= 2.2
 '''
 
+# ##Should be fixed later on then removed:
+# pylint: disable=missing-function-docstring
+# pylint: disable=missing-class-docstring
+# pylint: disable=invalid-name
+# pylint: disable=consider-iterating-dictionary
+
 
 import sys
 import os
@@ -41,7 +47,7 @@ import glob
 import ldif
 import ldap
 import yaml
-import inspect
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from lib389 import DirSrv
@@ -78,60 +84,27 @@ IGNOREATTRS = ( 'creatorsName', 'modifiersName',
               )
 
 
-class MyLogger:
-    def __init__(self, name, logfd=None):
-        home = os.getenv('HOME')
-        self.name = name
-        if logfd:
-            self.logfd = logfd
-        else:
-            try:
-                self.logfd = open(f"{home}/.ansible_ds.log", "w")
-            except IOException:
-                self.logfd = sys.stderr
-
-    def _fmt(self, levelinfo, msg, args):
-      if args:
-        msg = msg.format(args)
-      now = datetime.now().time()
-      callerframe = inspect.getouterframes(inspect.currentframe())[2][0]
-      lineno = inspect.getlineno(callerframe)
-      longfilename = inspect.getfile(callerframe)
-      callerframe = None
-      shortfilename = longfilename.split('/')[-1]
-      logmsg=f'[{now}] {shortfilename}:{lineno} - {levelinfo}: {msg}\n'
-      self.logfd.write(logmsg)
-
-    def info(self, msg, *args):
-        self._fmt("INFO", msg, args)
-        
-    def debug(self, msg, *args):
-        self._fmt("DEBUG", msg, args)
-
-    def warn(self, msg, *args):
-        self._fmt("WARNING", msg, args)
-
-    def warning(self, msg, *args):
-        self._fmt("WARNING", msg, args)
-
-    def fatal(self, msg, *args):
-        self._fmt("FATAL", msg, args)
-
-    def exception(self, msg, *args):
-        self._fmt("EXCEPTION", msg, args)
-
-    def getChild(self, name):
-        return MyLogger(name, logfd=self.logfd)
-
-    def setLevel(self, level):
-        pass
-
-    def addHandler(self, handler):
-        pass
-
-
 # Initialize logging system
-log = MyLogger("ds389.ansible_ds")
+_log = None
+
+
+def init_log(name, stream=sys.stderr):
+    global _log
+    _log = logging.getLogger(name)
+    logh = logging.StreamHandler(stream)
+    fmt = '[%(asctime)s] %(levelname)s - %(filename)s[%(lineno)d]: %(message)s'
+    datefmt = '%Y/%m/%d %H:%M:%S %z'
+    logh.setFormatter(logging.Formatter(fmt, datefmt))
+    _log.addHandler(logh)
+    elogh = logging.StreamHandler(sys.stderr)
+    elogh.setLevel(logging.ERROR)
+    elogh.setFormatter(logging.Formatter(fmt, datefmt))
+    _log.addHandler(elogh)
+    _log.setLevel(logging.ERROR)
+
+def get_log():
+    return _log
+
 
 def dictlist2dict(dictlist):
     if isinstance(dictlist, dict):
@@ -152,7 +125,7 @@ def _ldap_op_s(inst, f, fname, *args, **kwargs):
     try:
         return f(*args, **kwargs)
     except ldap.LDAPError as e:
-        new_desc = f"{fname}({args}, {kwargs}) on instance {inst.serverid}";
+        new_desc = f"{fname}({args}, {kwargs}) on instance {inst.serverid}"
         if len(e.args) >= 1:
             e.args[0]['ldap_request'] = new_desc
         raise
@@ -182,10 +155,50 @@ def search_ext_s(inst, *args, **kwargs):
     return _ldap_op_s(inst, inst.search_ext_s, 'search_ext_s', *args, **kwargs)
 
 
+class Key(str):
+    """A normalizable string (typically an entry dn or an attribute name)."""
+
+    @staticmethod
+    def from_val(val):
+        """This methods returns a key if val is a string."""
+        if isinstance(val, str) and not isinstance(val, Key):
+            return Key(val)
+        return val
+
+    def __init__(self, astring):
+        assert astring is not None
+        str.__init__(astring)
+        self._astring = astring
+        try:
+            self.normalized = ldap.dn.dn2str(ldap.dn.str2dn(astring.lower()))
+        except ldap.DECODING_ERROR:
+            self.normalized = astring.lower()
+
+    def __hash__(self) -> 'int':
+        return hash(self.normalized)
+
+    def __eq__(self, other:'object') -> 'bool':
+        if not isinstance(other, str):
+            return False
+        return self.normalized == Key.from_val(other).normalized
+
+    def decode(self,encoding):
+        """Works around ensure_str bug (that call decode if type is not str)."""
+        del encoding # Avoid lint warning.
+        return self
+
+    def __str__(self):
+        return str.__str__(self._astring)
+
+    def __repr__(self):
+        return str.__repr__(self._astring)
+
+
+
 @dataclass
 class NormalizedDict(dict):
     """
-        A dict with normalized key stored in hash table 
+        A dict with normalized key stored in hash table
         Note: The original version of the key (or the first one
         in case of duplicates) is returned when walking the dict
     """
@@ -205,8 +218,8 @@ class NormalizedDict(dict):
             if re.match("^[a-z][a-z0-9-]* *= .*", nkey):
                 nkey = normalizeDN(key)
             for k,v in { r"\=": r"\3d", r"\,": r"\2c" }.items():
-                nkey = nkey.replace(k, v);
-            #log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
+                nkey = nkey.replace(k, v)
+            #_log.info(f"NormalizedDict.normalize: key={key} nkey={nkey}")
         return nkey
 
     def get(self, key):
@@ -265,7 +278,7 @@ class NormalizedDict(dict):
         try:
             val = self[key]
             self.__delitem__(key)
-        except KeyError as e: 
+        except KeyError as e:
             if len(args) == 0:
                 raise e
             else:
@@ -301,13 +314,13 @@ class LdapOp():
     def __init__(self, op, dn):
         self.___opinfo = {
             LdapOp.ADD_ENTRY : { 'changetype' : 'add', 'attrtype': None, 'apply' : self._ldap_add, 'ldaptype': None},
-            LdapOp.DEL_ENTRY : { 'changetype' : 'delete', 'attrtype': None, 'apply' : self._ldap_del, 'ldaptype': None }, 
+            LdapOp.DEL_ENTRY : { 'changetype' : 'delete', 'attrtype': None, 'apply' : self._ldap_del, 'ldaptype': None },
             LdapOp.ADD_VALUES : { 'changetype' : 'modify', 'attrtype': 'add', 'apply' : self._ldap_mod,
-                                'ldaptype': ldap.MOD_ADD }, 
+                                'ldaptype': ldap.MOD_ADD },
             LdapOp.DEL_VALUES : { 'changetype' : 'modify', 'attrtype': 'delete', 'apply' : self._ldap_mod,
-                                'ldaptype': ldap.MOD_DELETE }, 
+                                'ldaptype': ldap.MOD_DELETE },
             LdapOp.REPLACE_VALUES : { 'changetype' : 'modify', 'attrtype': 'replace', 'apply' : self._ldap_mod,
-                                'ldaptype': ldap.MOD_REPLACE }, 
+                                'ldaptype': ldap.MOD_REPLACE },
         }
         assert op in self.___opinfo
         super().__init__()
@@ -394,7 +407,7 @@ class LdapOp():
             return self.nvals.keys()
         else:
             return self.attrs.keys()
-                        
+
     def getValues(self, attr, normalize=False):
         if not self.attrs.has_key(attr):
             return []
@@ -529,7 +542,7 @@ class DiffResult:
     def getList(dict, key):
         if not dict.has_key(key):
             dict[key] = []
-        return dict[key] 
+        return dict[key]
 
     def addModifier(dict, dn, action, attr, val):
         assert (action in DiffResult.ACTIONS)
@@ -566,11 +579,11 @@ class DiffResult:
         return (None, None)
 
     def diffAttr(self, attr, e1, e2):
-        if e1 is None: 
+        if e1 is None:
             a1 = None
         else:
             a1 = attr
-        if e2 is None: 
+        if e2 is None:
             a2 = None
         else:
             a2 = attr
@@ -625,7 +638,7 @@ class DiffResult:
 
 class DSE:
     def __init__(self, dsePath):
-        self.dsePath = dsePath;
+        self.dsePath = dsePath
         # Count entries in dse.ldif
         nbentries = 0
         with open(dsePath, 'r') as f:
@@ -682,4 +695,3 @@ class DSE:
         if entry:
             return entry.getSingleValue(attr)
         return None
-

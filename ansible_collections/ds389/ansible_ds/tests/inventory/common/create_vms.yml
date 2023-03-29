@@ -1,5 +1,6 @@
 ---
-- hosts: localhost
+- name: Creates 4 docker containers
+  hosts: localhost
   # Change become to true if you are not root and if your user is not part of the docker group
   become: false
   vars:
@@ -37,7 +38,7 @@
         state: started
       with_items:
         - "{{ groups['ldapservers'] }}"
-  
+
     - name: "Add the docker containers to inventory"
       ansible.builtin.add_host:
         name: "{{ item }}"
@@ -48,12 +49,13 @@
         - "{{ groups['ldapservers'] }}"
 
 
-- hosts: ldapservers
+- name: Install ansible and 389ds on the docker containers
+  hosts: ldapservers
   become: false
 
   tasks:
     - name: "Install ansible and 389ds"
-      dnf:
+      ansible.builtin.dnf:
         name:
           - 389-ds-base
           - ansible

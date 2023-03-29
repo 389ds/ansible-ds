@@ -8,5 +8,5 @@ all:
     ldapservers:
       vars:
         vault_ds389_rootpw: !unsafe rootdnpw
-        vault_ds389_replman: !unsafe replmanpw
+        vault_ds389_replmanpw: !unsafe replmanpw
 

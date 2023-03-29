@@ -1,7 +1,22 @@
 ---
-- hosts: localhost
+- name: Creates instances i1 and i2
+  import_playbook: test_ds389_create.yml
+
+- name: Gather 389ds facts
+  hosts: localhost
+
   tasks:
-    - debug:
-        msg: import ds389.ansible_ds.gather_dsinst_info.yml
-- name: Run ds389.ansible_ds.gather_dsinst_info.yml
-  import_playbook: ansible_collections/ds389/ansible_ds/playbooks/gather_dsinst_info.yml
+    - name: Get 389ds facts
+      ds389.ansible_ds.ds389_info:
+      register: ds389_facts
+
+    - name: Print 389ds facts
+      ansible.builtin.debug:
+        var: ds389_facts
+
+    - name: Checks that i1 amd i2 are presents in facts
+      ansible.builtin.assert:
+        that:
+          - ds389_facts['ansible_facts']['ds389_server_instances'] | selectattr('name','equalto','i1') | list | count > 0
+          - ds389_facts['ansible_facts']['ds389_server_instances'] | selectattr('name','equalto','i2') | list | count > 0
+        msg: instances i1 and i2 should be in 389ds facts

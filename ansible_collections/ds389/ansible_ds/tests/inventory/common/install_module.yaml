@@ -1,10 +1,15 @@
 ---
-- hosts: localhost
+# Note: rejected recursive ansible.builtin.copy solution that is painfully slow
+- name: "Add the dockers containers to inventory"
+  hosts: localhost
   # Change become to true if you are not root and if your user is not part of the docker group
   become: false
 
+  vars:
+    ansible_ds_path: collections/ansible_collections/ds389/ansible_ds
+
   tasks:
-    - name: "Add the {{ item }} container to inventory"
+    - name: Add the dockers containers to inventory
       ansible.builtin.add_host:
         name: "{{ item }}"
         ansible_connection: docker
@@ -13,14 +18,39 @@
       with_items:
         - "{{ groups['ldapservers'] }}"
 
-- hosts: ldapservers
+    - name: Create archive for ds389 ansible collection
+      ansible.builtin.command: sh -c "cd ~/.ansible && tar -czf ~/.ansible/ansible_ds.tgz {{ ansible_ds_path }}"
+
+- name: Copy ds389 ansible collection
+  hosts: ldapservers
   become: false
+
+  vars:
+    ansible_ds_path: collections/ansible_collections/ds389/ansible_ds
+    local_archive: $HOME/.ansible/ansible_ds.tgz
+    remote_archive: $HOME/.ansible/ansible_ds.tgz
 
   tasks:
     - name: Copy ds389 ansible collection
       ansible.builtin.copy:
-        src: ~/.ansible/collections/ansible_collections/ds389/ansible_ds
-        dest: ~/.ansible/collections/ansible_collections/ds389
-        mode: preserve
-        directory_mode: 0751
-        force: true
+        src: ~/.ansible/ansible_ds.tgz
+        dest: ~/.ansible/ansible_ds.tgz
+        mode: "u=rw,g=r"
+
+    - name: Install ds389 ansible collection
+      ansible.builtin.command: sh -c "cd ~/.ansible && tar -xzf  ~/.ansible/ansible_ds.tgz"
+
+    - name: Cleanup - remove ~/.ansible/ansible_ds.tgz
+      ansible.builtin.file:
+        path: ~/.ansible/ansible_ds.tgz
+        state: absent
+
+- name: Perform cleanup
+  hosts: localhost
+  become: false
+
+  tasks:
+    - name: Cleanup - remove ~/.ansible/ansible_ds.tgz
+      ansible.builtin.file:
+        path: ~/.ansible/ansible_ds.tgz
+        state: absent

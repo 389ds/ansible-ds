@@ -1,19 +1,16 @@
 ---
+- name: Gather os specific variables
+  ansible.builtin.include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_facts['distribution'] }}-{{ ansible_facts['distribution_major_version'] }}.yml"
+    - "{{ ansible_facts['distribution'] }}.yml"
+    - "default.yml"
+  tags: vars
 
-  - name: gather os specific variables
-    include_vars: "{{ item }}"
-    with_first_found:
-      - "{{ ansible_facts['distribution'] }}-{{ ansible_facts['distribution_major_version'] }}.yml"
-      - "{{ ansible_facts['distribution'] }}.yml"
-      - "default.yml"
-    tags: vars
-
-  - name: Debug
-    ansible.builtin.debug:
-      msg:
-        #- "Debug Ansible facts: {{ ansible_facts }}"
-        #- "Debug role: {{ ansible_role_name }}"
-        - "Debug ds389_packages: {{ ds389_packages }}"
-        #- "Debug vars: {{ vars }}"
-
-
+- name: Debug
+  ansible.builtin.debug:
+    msg:
+      # - "Debug Ansible facts: {{ ansible_facts }}"
+      # - "Debug role: {{ ansible_role_name }}"
+      - "Debug ds389_packages: {{ ds389_packages }}"
+      # - "Debug vars: {{ vars }}"

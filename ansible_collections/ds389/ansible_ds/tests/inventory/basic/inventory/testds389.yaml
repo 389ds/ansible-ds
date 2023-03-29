@@ -4,11 +4,11 @@ all:
     ldapservers:
       vars:
         ds389_server_instances:
-            - name: localhost
-              rootpw: "{{ vault_ds389_rootpw }}"
-              backends: 
-                - name: userroot
-                  suffix: dc=example,dc=com
+          - name: localhost
+            rootpw: "{{ vault_ds389_rootpw }}"
+            backends:
+              - name: userroot
+                suffix: dc=example,dc=com
       children:
         suppliers:
           hosts:

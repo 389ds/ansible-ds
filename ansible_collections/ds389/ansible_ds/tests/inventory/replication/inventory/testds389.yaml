@@ -3,15 +3,17 @@ all:
   children:
     ldapservers:
       vars:
-        ds389_instances:
+        ds389_server_instances:
           - name: localhost
             rootpw: "{{ vault_ds389_rootpw }}"
-            backends: 
+            backends:
               - name: userroot
                 suffix: dc=example,dc=com
                 # ancestors
-                index:
+                indexes:
                   - name: myattr
+                    indextype:
+                      - eq
 
       children:
         suppliers:
@@ -20,12 +22,12 @@ all:
               - name: localhost.userroot
                 merge:
                   ReplicaRole: supplier
-                  ReplicacwPort: 636
+                  ReplicaPort: 636
                   ReplicaTransportInfo: SSL
-                  ReplicationManagerDN: cn=replication manager, cn=config
-                  ReplicationManagerPassword: "{{ vault_ds389_replmanpw }}"
+                  ReplicaBindDN: cn=replication manager, cn=config
+                  ReplicaCredentials: "{{ vault_ds389_replmanpw }}"
             ds389_agmts:
-              - target: "{{ Group[consumers] }}"
+              - target: "{{ groups['consumers'] }}"
           hosts:
             ds389vm1:
               ds389_option_02:
@@ -35,7 +37,7 @@ all:
                 - name: ds389_agmts
                   append:
                     - target: ds389vm2
-                
+
             ds389vm2:
               ds389_option_02:
                 - name: localhost.userroot
@@ -45,14 +47,14 @@ all:
                   append:
                     - target: ds389vm1
                       ReplicaIgnoreMissingChange: once
-                
+
         consumers:
           vars:
             ds389_option_01:
               - name: localhost.userroot
                 merge:
                   ReplicaRole: consumer
-                  ReplicacwPort: 636
+                  ReplicaPort: 636
                   ReplicaTransportInfo: SSL
                   ReplicationManagerDN: cn=replication manager, cn=config
                   ReplicationManagerPassword: "{{ vault_ds389_replmanpw }}"

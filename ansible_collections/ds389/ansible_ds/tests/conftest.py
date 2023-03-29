@@ -81,7 +81,7 @@ class IniFileConfig:
                 self.best_section = section
                 break
 
-    def exportAll(self):
+    def export_all(self):
         """Put all param from the best section in the environment"""
         if self.best_section:
             for var in IniFileConfig.EXPORTS:
@@ -94,7 +94,7 @@ class IniFileConfig:
         _setenv('ASAN_OPTIONS', 'exitcode=0')
 
     @staticmethod
-    def getPath(relpath):
+    def get_path(relpath):
         """return the full path from a path that is relative to the galaxy collection source root (i.e: ..)."""
         return f"{IniFileConfig.BASE}/{relpath}"
 
@@ -111,7 +111,7 @@ class PlaybookTestEnv:
     }
 
     @staticmethod
-    def _initVault(vault_dir):
+    def _init_vault(vault_dir):
         """Generates the vault password file and vault file for the playbook test
         """
 
@@ -132,7 +132,7 @@ class PlaybookTestEnv:
                 file.write('\n')
 
     @staticmethod
-    def _removeAllInstances():
+    def _remove_all_instances():
         for serverid in get_instance_list():
             inst = DirSrv()
             inst.local_simple_allocate(serverid)
@@ -144,9 +144,9 @@ class PlaybookTestEnv:
         self.skip = True
         self.dir = None
         self.pbh = None
-        acdir = Path(IniFileConfig.BASE).parent.parent
-        repodir = acdir.parent
-        tarballpath = Path(f'{acdir}/ds389-ansible_ds-1.0.0.tar.gz')
+        self.docker = False
+        repodir = Path(IniFileConfig.BASE).parent.parent.parent
+        tarballpath = Path(f'{repodir}/ansible_ds.tgz')
         if tarballpath.exists():
             # Create a working directory for running the playbooks
             self.pbh = os.getenv('PLAYBOOKHOME', None)
@@ -164,7 +164,7 @@ class PlaybookTestEnv:
             self.skip = False
             _setenv('ANSIBLE_LIBRARY', f'{self.pbdir}/ansible_collections/ds389/ansible_ds')
             # Create the vars/vault.yml encrypted variable file
-            PlaybookTestEnv._initVault(self.pbdir)
+            PlaybookTestEnv._init_vault(self.pbdir)
         # setup the envirnment variables
         self.debugging = os.getenv('DEBUGGING', None)
         if self.dir:
@@ -181,6 +181,10 @@ class PlaybookTestEnv:
                 file.write(f'cd {self.pbdir}\n')
                 file.write('/bin/rm -rf ansible_collections\n')
                 file.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
+        # Check if docker is available
+        result = subprocess.run(['docker', 'info'], capture_output=True, encoding='utf8', check=False)
+        if result.returncode == 0 and 'Server:' in result.stdout:
+            self.docker = True
 
     def run(self, testitem, playbook):
         """Run a playbook
@@ -200,14 +204,19 @@ class PlaybookTestEnv:
             cmd_dir, pb_name = os.path.split(pb_fullname)
             # Add inventory and vault options
             cmd = cmd + [ '-i', 'inventory', '--vault-password-file', f'{cmd_dir}/../vault.pw' ]
+            # Verify docker presence.
+            if not self.docker:
+                pytest.skip("Inventory tests requires 'docker'")
+                return
+
         cmd.append(pb_name)
-        PlaybookTestEnv._removeAllInstances()
+        PlaybookTestEnv._remove_all_instances()
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8', cwd=cmd_dir) # pylint: disable=subprocess-run-check
         testitem.add_report_section("call", "stdout", result.stdout)
         testitem.add_report_section("call", "stderr", result.stderr)
         testitem.add_report_section("call", "cwd", cmd_dir)
         if not self.debugging:
-            PlaybookTestEnv._removeAllInstances()
+            PlaybookTestEnv._remove_all_instances()
         if result.returncode != 0:
             self.testfailed = True
             print(f'ERROR: Command {cmd} run in {cmd_dir} failed with return code {result.returncode}', file=sys.stderr)
@@ -225,7 +234,7 @@ class PlaybookTestEnv:
 
 
 _CONFIG = IniFileConfig()
-_CONFIG.exportAll()
+_CONFIG.export_all()
 _PLAYBOOK = PlaybookTestEnv()
 lib389path = os.getenv('LIB389PATH')
 pypath = os.getenv('PYTHONPATH')
@@ -255,7 +264,7 @@ class AnsibleTest:
             caplog.set_level(logging.DEBUG)
             self.debugging = True
 
-    def getLog(self, name):
+    def get_log(self, name):
         """Return the current logger."""
         self.log = logging.getLogger(name)
         self.test_module_name = name
@@ -263,14 +272,14 @@ class AnsibleTest:
         items = name.split('.')
         nbi = len(items)
         module = f'{items[nbi-2]}.{items[nbi-1].replace("test_", "")}'
-        path = _CONFIG.getPath('plugins')
+        path = _CONFIG.get_path('plugins')
         self.module = module
         if not path in sys.path:
             sys.path.append(path)
         return self.log
 
 
-    def _logStdio(self, name, result):
+    def _log_stdio(self, name, result):
         """Log strings from subprocess.run result associated with stdio members."""
         text = getattr(result, name, None)
         if text:
@@ -278,41 +287,36 @@ class AnsibleTest:
                 self.log.info('  %s: %s', name.upper(), line)
 
 
-    def _logRunResult(self, result):
+    def _log_run_result(self, result):
         """Displays subprocess.run result in a pretty way."""
         self.log.info('Running: %s', str(result.args))
         self.log.info('  ReturnCode: %d', result.returncode)
-        self._logStdio('stdin', result)
-        self._logStdio('stdout', result)
-        self._logStdio('stderr', result)
+        self._log_stdio('stdin', result)
+        self._log_stdio('stdout', result)
+        self._log_stdio('stderr', result)
 
 
     def run(self, cmd):
         """Run a sub command."""
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8' ) # pylint: disable=subprocess-run-check
-        self._logRunResult(result)
+        self._log_run_result(result)
         result.check_returncode()
 
 
-    def runModule(self, cmd, stdin_text):
-        """Run a specific ansible module."""
+    def run_test_module(self, stdin_text):
+        """Run the ansible module associated with the test module."""
+        cmd = _CONFIG.get_path('plugins/modules/ds389_module.py')
         stdin_text = json.dumps(stdin_text)
         self.log.info('Running module {%s} with stdin: %s', cmd, stdin_text)
         os.environ['PYTHONPATH'] = ":".join(sys.path)
         # should spawn a subprocess rather than importing the module and calls run_module
         # (because run_module calls sys.exit which break pytest framework)
         result = subprocess.run([cmd], encoding='utf8', text=True, input=stdin_text, capture_output=True, check=False) # pylint: disable=subprocess-run-check
-        self._logRunResult(result)
+        self._log_run_result(result)
         assert result.returncode in (0, 1)
-        self.log.info('Module %s result is %s', cmd, result.stdout)
         self.result = json.loads(result.stdout)
+        self.log.info('Module %s result is %s', cmd, self.result)
         return self.result
-
-
-    def runTestModule(self, stdin_text):
-        """Run the ansible module associated with the test module."""
-        cmd = _CONFIG.getPath(f'plugins/{self.module.replace(".","/")}.py')
-        return self.runModule(cmd, stdin_text)
 
 
     # pylint: disable-next=R0201
@@ -321,28 +325,28 @@ class AnsibleTest:
         # Defined as a function rather than a static method
         # Because classes defined in conftest are a bit cumbersome to refer within pytests
         # So lets use a workaround to avoid R0201 lint warning
-        self.getLog("foo")
+        self.get_log("foo")
         for item in obj:
             if item['name'] == name:
                 return item
         raise KeyError(f'No children entity named {name} in {obj.name}.')
 
-    def listInstances(self):
+    def list_instances(self):
         """return the list of ds389 instances (extracted from runModule result)."""
-        return [ instance['name'] for instance in self.result['my_useful_info']['ds389_server_instances'] ]
+        return [ instance['name'] for instance in self.result['ansible_facts']['ds389_server_instances'] ]
 
-    def getInstanceAttr(self, instname, attr):
+    def get_instance_attr(self, instname, attr):
         """Return an instance attribute (extracted from runModule result)."""
-        return self.lookup(self.result['my_useful_info']['ds389_server_instances'], instname)[attr]
+        return self.lookup(self.result['ansible_facts']['ds389_server_instances'], instname)[attr]
 
-    def listBackends(self, instname):
+    def list_backends(self, instname):
         """return the list of backends of a ds389 instances (extracted from runModule result)."""
-        backends = self.getInstanceAttr(instname, 'backends')
+        backends = self.get_instance_attr(instname, 'backends')
         return [ backends.keys() ]
 
-    def getBackendAttr(self, instname, bename, attr):
+    def get_backend_attr(self, instname, bename, attr):
         """return a backend attribute (extracted from runModule result)."""
-        backends = self.getInstanceAttr(instname, 'backends')
+        backends = self.get_instance_attr(instname, 'backends')
         return self.lookup(backends, bename)[attr]
 
 

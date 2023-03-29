@@ -10,3 +10,35 @@ max-attributes=11
 max-line-length=130
 ignore-long-lines=^\s.*Option.*$
 method-naming-style=camelCase
+max-module-lines=2000
+
+[DESIGN]
+max-returns=8
+
+
+[BASIC]
+
+bad-names=
+    _,
+    bar,
+    baz,
+    foo,
+    tata,
+    toto,
+    tutu,
+
+good-names=
+    __metaclass__,
+    C,
+    ex,
+    i,
+    j,
+    k,
+    Run,
+
+class-attribute-rgx=[A-Za-z_][A-Za-z0-9_]{1,40}$
+attr-rgx=[a-z_][a-z0-9_]{1,40}$
+method-rgx=[a-z_][a-z0-9_]{1,40}$
+function-rgx=[a-z_][a-z0-9_]{1,40}$
+module-rgx=[a-z_][a-z0-9_-]{2,40}$
+

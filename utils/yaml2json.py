@@ -24,7 +24,7 @@ class MyClassObject(yaml.YAMLObject):
 
     yaml_loader = yaml.SafeLoader
 
-    def toObj(self):
+    def to_obj(self):
         """Convert object into dict."""
         _dict = { "tag" : self.yaml_tag }
         for key, val in self.__dict__.items():
@@ -53,7 +53,7 @@ class MyJsonEncoder(json.JSONEncoder):
     def default(self, o):
         print(f"obj={o}")
         if isinstance(o, MyClassObject):
-            return o.toObj()
+            return o.to_obj()
         # Let the base class default method raise the TypeError
         return json.JSONEncoder.default(self, o)
 
