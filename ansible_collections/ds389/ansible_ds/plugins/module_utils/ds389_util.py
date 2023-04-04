@@ -48,7 +48,6 @@ from tempfile import TemporaryDirectory
 from dataclasses import dataclass
 import ldap
 import ldif
-from lib389.utils import ensure_str, ensure_list_bytes
 
 # dse.ldif important object classes
 CLASSES = (
@@ -91,6 +90,7 @@ def init_log(name, stream=sys.stderr):
     _log = logging.getLogger(name)
     _log.setLevel(logging.DEBUG)
     logh = logging.StreamHandler(stream)
+    logh = logging.StreamHandler(sys.stderr)
     fmt = '[%(asctime)s] %(levelname)s - %(filename)s[%(lineno)d]: %(message)s'
     datefmt = '%Y/%m/%d %H:%M:%S %z'
     logh.setFormatter(logging.Formatter(fmt, datefmt))
@@ -174,6 +174,33 @@ class Key(str):
             return Key(val)
         return val
 
+    @staticmethod
+    def to_bytes(val):
+        """This methods converts a value to bytes."""
+        if isinstance(val, bytes):
+            return val
+        if isinstance(val, list):
+            return [ Key.to_bytes(elmt) for elmt in val ]
+        if isinstance(val, Key):
+            val = val.string()
+        if not isinstance(val, str):
+            val = str(val)
+        return val.encode(encoding='utf-8')
+
+    @staticmethod
+    def to_str(val):
+        """This methods converts a value to a string."""
+        if isinstance(val, Key):
+            return val.string()
+        if isinstance(val, bytes):
+            try:
+                val = val.decode('utf-8')
+            except UnicodeError:
+                return val
+        if not isinstance(val, str):
+            val = str(val)
+        return val
+
     def __init__(self, astring):
         assert astring is not None
         str.__init__(astring)
@@ -194,11 +221,8 @@ class Key(str):
             return False
         return self.normalized == Key.from_val(other).normalized
 
-    def decode(self,encoding, *args):
-        """Works around ensure_str bug (that call decode if type is not str)."""
-        del encoding # Avoid lint warning.
-        del args # Avoid lint warning.
-        return self
+    def string(self):
+        return self._astring
 
     def __str__(self):
         return str.__str__(self._astring)
@@ -285,9 +309,9 @@ class LdapOp():
         opinfo = self.___opinfo[self.op]
         for attr, vals in self.attrs.items():
             if opinfo['ldaptype']:
-                mods.append( (opinfo['ldaptype'], attr, ensure_list_bytes(vals)) )
+                mods.append( (opinfo['ldaptype'], attr, Key.to_bytes(vals)) )
             else:
-                mods.append( (attr, ensure_list_bytes(vals)) )
+                mods.append( (attr, Key.to_bytes(vals)) )
 
     def _ldap_add(self, dirSrv):
         add_s(dirSrv, self.dn, self.to_ldap_mods(), escapehatch='i am sure')
@@ -390,7 +414,7 @@ class Entry:
         if not val:
             return None
         assert len(val) == 1
-        return ensure_str(val[0])
+        return Key.to_str(val[0])
 
     def hasSameAttributes(self, entry, attrlist=None):
         if attrlist is None:

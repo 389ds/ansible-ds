@@ -89,14 +89,14 @@ from lib389.dseldif import DSEldif
 from lib389.backend import Backend
 from lib389.index import Index
 from lib389.instance.setup import SetupDs
-from lib389.utils import ensure_bytes, ensure_list_bytes, normalizeDN, \
-                         escapeDNFiltValue, get_instance_list
+from lib389.utils import normalizeDN, escapeDNFiltValue, get_instance_list
 from lib389._constants import ReplicaRole
 from lib389.replica import Replicas, Replica, Changelog
+from lib389.idm.services import ServiceAccount
 
 from .ds389_util import Key, DSE, DiffResult, dictlist2dict, Entry, LdapOp, get_log
 
-ROOT_ENTITY = "ds"
+ROOT_ENTITY = socket.gethostname()
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
 
 INSTANCES = 'ds389_server_instances'
@@ -117,24 +117,28 @@ def _get_new_value(inst, dn, attr):
     return dse.getSingleValue(dn, attr)
 
 
-def _is_password_ignored(inst, action):
+def _is_password_ignored(inst, action, dn=None, pw=None):
     # Check if provided password is the same than the instance one.
     # We cannot compare the value because it is hashed so we try to bind.
-    #log.info(f'Entering _is_password_ignored checking password {action.vto} against instance {inst.name}')
-    if action.vto.startswith('{'):
+    if not dn:
+        dn = _get_new_value(inst, 'cn=config', 'nsslapd-rootdn')
+    if not pw:
+        pw = action.vto
+    get_log().info(f'Entering _is_password_ignored checking dn {dn} and password {pw} against instance {inst.name}')
+    if pw.startswith('{'):
         # Provided value is hashed and different from previous hash value
         # ==> let assume that the password changed.
-        #log.info('Exiting _is_password_ignored returning False because password seems already hashed')
+        get_log().debug(f'Exiting _is_password_ignored returning False because {dn} password seems already hashed')
         return False
     dirsrv = inst.getDirSrv(mode=ConfigInstance.DIRSRV_NOLDAPI)
     if dirsrv is None:
         # We are creating a new instance and we need the password.
-        #log.info('Exiting _is_password_ignored returning False because instance does not exists.')
+        get_log().debug('Exiting _is_password_ignored returning False because instance does not exists.')
         return False
-    dirsrv.binddn = _get_new_value(inst, 'cn=config', 'nsslapd-rootdn')
+    dirsrv.binddn = dn
+    dirsrv.bindpw = pw
     dirsrv.sslport = _get_new_value(inst, 'cn=config', 'nsslapd-secureport')
     dirsrv.port = _get_new_value(inst, 'cn=config', 'nsslapd-port')
-    dirsrv.bindpw = action.vto
     if dirsrv.sslport:
         try:
             get_log().debug(f"Try to bind as {dirsrv.binddn} on instance {dirsrv.serverid} using ldaps.")
@@ -175,20 +179,38 @@ class Option:
     def __init__(self, name, desc, prio=10, actionCbName=None, dseName=None, dseDN=None, configName=None,
             configTag=None, choice=None, hidden=False, isIgnoredCb=None, readonly=False, required=False, vdef=None, otype="str"):
         self.name = Key(name)            # Ansible variable name
-        self.desc = desc                 # Human readable description
+        self.desc = Option.unfold(desc)  # Human readable description
         self.prio = prio                 # Priority order ( low priority parameters are handled first )
         self.actioncbname = actionCbName # Name of action handler cb in entity object
         self.dsename = Key.from_val(dseName)  # Attribute name in dse.ldif file
         self.dsedn = Key.from_val(dseDN)      # Entry DN in dse.ldif file (may refer to the entity attributes have lower priority)
         self.configname = configName     # Attribute name in dscreate config file (cf ds389_create create-template --advanced)
         self.configtag = configTag       # Attribute section in dscreate config file (cf ds389_create create-template --advanced)
-        self.choice = choice             # Allowed values if attribute is a choice
+        self.choice = Option.lower(choice) # Allowed values if attribute is a choice
         self.hidden = hidden             # Tell whether attribute value is hidden (i.e not logged)
         self.isignoredcb = isIgnoredCb   # Callback to determine if attribute should be taken in account
         self.readonly = readonly         # True means that attribute change should be done when instance is stopped.
         self.required = required         # True means that attribute is mandatory.
-        self.vdef = vdef                 # Default value.
+        self.vdef = Option.unfold(vdef)  # Default value.
         self.otype = otype               # Expected python type for the values
+
+    @staticmethod
+    def unfold(desc):
+        """ This method remove consecutive spaces that are added when folding long lines."""
+        if isinstance(desc,str):
+            return re.sub("  +", " ", desc)
+        return desc
+
+    @staticmethod
+    def lower(val):
+        """ This method conevert a value to its lower case counterpart."""
+        if isinstance(val, str):
+            return val.lower()
+        if isinstance(val, tuple):
+            return (Option.lower(elmt) for elmt in val)
+        if isinstance(val, list):
+            return [ Option.lower(elmt) for elmt in val ]
+        return val
 
     def __repr__(self):
         myrepr = f"Option({self.name}"
@@ -240,7 +262,6 @@ class Option:
         if action2perform == OptionAction.FACT:
             val = action.target.getDSE().getSingleValue(dsedn, option.dsename)
             get_log().debug(f"_action: OptionAction.FACT  dsedn={dsedn} dsename={option.dsename} val={val} type={type(val)}")
-            get_log().error(f"_action: OptionAction.FACT  dsedn={dsedn} dsename={option.dsename} val={val} type={type(val)}")
             return val
         if action2perform == OptionAction.CONFIG:
             val = action.getValue()
@@ -388,6 +409,7 @@ class MyConfigObject():
         self._isDeleted = None
 
     def set(self, args):
+        """Set the wanted options in the instance. args is a string containing json or a dict."""
         get_log().debug(f"MyConfigObject.set {self} {self.name} <-- {args}")
         ### Initialize the object from a raw dict
         if isinstance(args, str):
@@ -420,9 +442,12 @@ class MyConfigObject():
         # And check that options are valids
         self.validate()
 
+    def add_change(self, change):
+        """Add a change in result message."""
+        self.parent().add_change(change)
+
     def todict(self):
         """Convert list of dict to dict of dict whose key is name."""
-
         res = {}
         for key, val in self.__dict__.items():
             if key.startswith('_'):
@@ -441,10 +466,8 @@ class MyConfigObject():
             #log.info(f"todict: {self.name} {key} <-- {val}")
         return res
 
-
     def tolist(self):
         """Convert dict of dict whose key is name to list of dict."""
-
         res = {}
         for key, val in self.__dict__.items():
             if key.startswith('_'):
@@ -463,7 +486,6 @@ class MyConfigObject():
             # And finally handles the regular options
             res[key] = val
         return res
-
 
     def setCtx(self):
         self._infConfig = ConfigParser()
@@ -547,8 +569,7 @@ class MyConfigObject():
         return state
 
     def setOption(self, option, val):
-        get_log().debug(f'Entity: {self.name} option:{option} val={val} type={type(val)}')
-        get_log().error(f'Entity: {self.name} option:{option} val={val} type={type(val)}')
+        get_log().debug(f'setOption: {type(self)} {self.name} option:{option} val={val} type={type(val)}')
         setattr(self, option, val)
 
     def validate(self):
@@ -584,6 +605,10 @@ class MyConfigObject():
 
     def __repr__(self):
         tmpdict = { key: MyConfigObject._get_dict_value(key, val) for key,val in self.__dict__.items() }
+        parent = tmpdict['_parent']
+        tmpdict['_parent'] = f'{type(parent)} {getattr(parent,"name", None)}'
+        children = tmpdict['_children']
+        tmpdict['_children'] = [ f'{type(child)} {child.name}' for child in children ]
         return f"{self.__class__.__name__}(name={self.name}, variables={tmpdict})"
 
     def getFacts(self):
@@ -783,7 +808,7 @@ class ConfigAgmt(MyConfigObject):
         AgmtOption('ReplicaBootstrapCredentials', "The credential associated with the fallback bind"),
         AgmtOption('ReplicaBootstrapTransportInfo', "The encryption method used on the connection after an authentication error.", choice= ("LDAP", "TLS", "SSL" )),
         AgmtOption('ReplicaBusyWaitTime', "The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access", otype="int"),
-        AgmtOption('ReplicaCredentials', "The crendential associated with the bind"),
+        AgmtOption('ReplicaCredentials', "The crendential associated with the bind", hidden=True),
         AgmtOption('ReplicaEnabled', "A flags telling wheter the replication agreement is enabled or not.", choice= ("on", "off")),
         AgmtOption('ReplicaFlowControlPause', "the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached.", otype="int"),
         AgmtOption('ReplicaFlowControlWindow', "The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsDS5ReplicaFlowControlPause parameter", otype="int"),
@@ -847,10 +872,10 @@ class ConfigAgmt(MyConfigObject):
                 # In fact that is the rdn that Backend.create method needs.
                 dn = f'cn={action.target.name}'
                 actions = action.target.getAllActions(action.target)
-                properties = {}
+                properties = { 'nsDS5ReplicaRoot': self.parent().suffix }
                 for a in actions:
                     if getattr(a.option, 'dsedn', None) == AgmtOption.AGMTDN and a.getValue():
-                        properties[a.option.dsename] = ensure_list_bytes(a.getValue())
+                        properties[a.option.dsename] = Key.to_bytes(a.getValue())
                 agmt = Agreement(inst.getDirSrv())
                 get_log().debug(f"Creating agmt dn:{dn},{baseDN} properties:{properties}")
                 agmt.create(dn, properties, baseDN)
@@ -872,6 +897,7 @@ class ConfigBackend(MyConfigObject):
                    Key("consumer"): ( "2", "0", ReplicaRole.CONSUMER, 1 ) }
 
     AGMT_OPTIONS = (
+        # AGMT_OPTIONS options are accepted but ignored as they are only used in the backends copied within ds389_agmts 
         # AgmtTgtOption('BeginReplicaRefresh', "desc"),   Not an attribut but a action/task
         AgmtTgtOption('ReplicaBindMethod', "The bind Method",  choice= ("SIMPLE", "SSLCLIENTAUTH", "SASL/GSSAPI", "SASL/DIGEST-MD5") ),
         AgmtTgtOption('ReplicaBootstrapBindDN', "The fallback bind dn used after getting authentication error"),
@@ -885,7 +911,7 @@ class ConfigBackend(MyConfigObject):
     )
 
     REPLICA_MANAGER_OPTIONS = (
-        AgmtTgtOption('ReplicaCredentials', "The credential associated with the bind",
+        ReplicaOption('ReplicaCredentials', "The credential associated with the bind",
                       isIgnoredCb=_is_password_ignored, hidden=True, configName="repl_password"),
         ReplicaOption('ReplicaBindDN', "DN of the user allowed to replay updates on this replica"),
     )
@@ -943,17 +969,16 @@ class ConfigBackend(MyConfigObject):
         return { 'bename' : self.name, 'suffix' : s }
 
     def getReplicaFacts(self, replicaDN, entry):
-        get_log().error(f"getReplicaFacts Backend {self.name} replicaDN={replicaDN} entry={entry}")
+        get_log().debug(f"getReplicaFacts Backend {self.name} replicaDN={replicaDN} entry={entry}")
         for option in self.OPTIONS:
             if isinstance(option, ReplicaOption):
                 val = entry.getSingleValue(option.dsename)
                 vdef = option.vdef
-                get_log().error(f"getReplicaFacts/ReplicaOption Backend {self.name} option:{option.name} val:{val}")
                 if val and val != vdef:
-                    get_log().error(f"Backend {self.name} option:{option.name} val:{val} tye:{type(val)}")
+                    get_log().debug(f"Backend {self.name} option:{option.name} val:{val} tye:{type(val)}")
                     setattr(self, option.name, val)
         role = self._getReplicaRole(entry = entry)
-        get_log().error(f"Backend {self.name} option:ReplicaRole val:{role} tye:{type(role)}")
+        get_log().debug(f"Backend {self.name} option:ReplicaRole val:{role} tye:{type(role)}")
         setattr(self, 'ReplicaRole',  role)
 
     def getFacts(self):
@@ -961,17 +986,17 @@ class ConfigBackend(MyConfigObject):
         self.state = 'present'
 
         actions = self.getAllActions(self)
+        hlog = f'ConfigBackend.getFacts: Backend {self.name}'
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            get_log().debug(f"Backend {self.name} option:{action.option.name} val:{val}")
             if val and val != vdef:
-                get_log().error(f"Backend {self.name} option:{action.option.name} val:{val} tye:{type(val)}")
+                get_log().debug(f"{hlog} option:{action.option.name} val:{val} tye:{type(val)}")
                 setattr(self, action.option.name, val)
 
         # Get replica
         replicaDN=Key.from_val(self.getPath(ReplicaOption.DSEDN))
-        get_log().error(f"ConfigBackend.getFacts Backend {self.name} replicaDN={replicaDN} dsekeys=...")
+        get_log().debug(f"{hlog} replicaDN={replicaDN} dsekeys=...")
         if replicaDN in dse.dn2entry:
             self.getReplicaFacts(replicaDN, dse.dn2entry[replicaDN])
 
@@ -990,11 +1015,11 @@ class ConfigBackend(MyConfigObject):
             for dn in dse.class2dn['nsds5replicationagreement']:
                 entry = dse.dn2entry[dn]
                 # Check if agmt matchs this replica
-                get_log().error(f"ConfigBackend.getFacts Backend {self.name} Handling agmt {entry}")
+                get_log().debug(f"{hlog} Handling agmt {entry}")
                 if entry.getDN().normalized.endswith(replicaDN.normalized):
                     # Check whether is was created by ansible through dse389_agmts
                     desc = entry.getSingleValue('description')
-                    get_log().error(f"ConfigBackend.getFacts Backend {self.name} Handling agmt {entry} desc={desc}")
+                    get_log().debug(f"{hlog} Handling agmt {entry} desc={desc}")
                     if desc and desc.lower().startswith('ansible-target: '):
                         ConfigDs389Agmt.getFactsFromEntry(self, entry, desc[16:])
                         continue
@@ -1034,15 +1059,83 @@ class ConfigBackend(MyConfigObject):
         inst = self._parent.getDirSrv()
         return Changelog(inst, suffix=self.suffix)
 
-
     def get_options(self, options):
         return tuple(opt for opt in self.OPTIONS if opt.name in options)
 
-    def update_agmts(self, facts):
-        pass
+    def handle_ds389agmt(self, agmt, facts, inst, onlycheck):
+        """Create/update an agmt defined id ds389_agmts."""
+        name = f'ansible-target:{agmt.target}'
+        adn = f'cn={name},{self.getPath(ReplicaOption.DSEDN)}'
+        cfg = ConfigAgmt(name, parent=self, beentrydn=adn)
+        # Get target agmt properties from AGMT_OPTIONS+REPLICA_MANAGER_OPTIONS
+        # Get supplier agmt properties from AGMT_OPTIONS+REPLICA_MANAGER_OPTIONS
+        onames = [ option.name.lower() for option in ConfigAgmt.OPTIONS ]
+        options = { key:val for key,val in agmt.items() if key.lower() in onames }
+        cfg.set(options)
+        summary = []
+        cfg.update(facts, summary, onlycheck)
+        for msg in summary:
+            self.add_change(msg)
 
-    def update_replman(self, facts):
-        pass
+    def update_agmts(self, facts, inst, onlycheck):
+        """Create/update all agmts defined in ds389_agmts."""
+        root = self.parent().parent()
+        if not hasattr(agmt, 'suffix'):
+            raise AttributeError("ds389_agmts should have a 'suffix' option")
+        for agmt in root.ds389_agmts:
+            get_log().debug(f'update_agmts: agmt={agmt} self={self}')
+            if agmt.suffix == self.suffix:
+                self.handle_ds389agmt(agmt, facts, inst, onlycheck)
+
+    def update_replman(self, facts, inst, onlycheck):
+        """Creates of update Replication manager entry."""
+        del facts
+        cfginst = self.parent()
+        # Get dn
+        try:
+            adn = self.replicabinddn
+        except AttributeError:
+            errmsg = f"Option 'ReplicaBindDn' is missing in {cfginst.name}.{self.name} on host {ROOT_ENTITY}"
+            get_log().debug(f'update_replman: {errmsg}')
+            return
+        # Check if we can use that dn
+        match = re.fullmatch('cn=([^,]*),(([^,]*,)*cn=config)', adn)
+        if not match:
+            get_log().debug(f'update_replman: Unable to handle dn {adn}')
+            return
+        # extract cn and basedn
+        acn = match.group(1)
+        basedn = match.group(2)
+        # Get the password
+        try:
+            apw = self.replicacredentials
+        except AttributeError:
+            errmsg = f"Option 'ReplicaCredentials' is missing in {cfginst.name}.{self.name} on host {ROOT_ENTITY}"
+            get_log().debug(f'update_replman: {errmsg}')
+            get_log().error(f'{errmsg}')
+            raise AttributeError(errmsg) from None
+        account = ServiceAccount(inst, adn)
+        if account.exists():
+            if _is_password_ignored(cfginst, None, dn=adn, pw=apw):
+                # Password has not changed ==> nothing to do.
+                get_log().debug('update_replman: password is not changed.')
+                return
+            # Password has changed ==> update it.
+            self.add_change(f'Updating password on entry {adn}')
+            if not onlycheck:
+                get_log().debug(f'Updating password on entry {adn}')
+                account.reset_password(apw)
+            return
+        # Entry does not exist ==> Create it.
+        self.add_change(f'Adding entry {adn}')
+        if not onlycheck:
+            get_log().debug(f'create entry {adn}')
+            properties = {
+                'cn': acn,
+                'objectclass': [ 'netscapeServer', 'nsAccount', 'top' ],
+                'userpassword': apw,
+            }
+            account.create(rdn=f'cn={acn}', properties=properties, basedn=basedn)
 
     def get_repl_role(self, val):
         """Get info about replica role."""
@@ -1053,17 +1146,23 @@ class ConfigBackend(MyConfigObject):
             raise AttributeError(f"Invalid 'ReplicaRole' value in backend {self._parent.name}.{self.name}")
         return ConfigBackend.REPL_ROLES[val]
 
-    def synchronize_properties(self, dn, dchanged):
+    def synchronize_properties(self, dn, dchanged, onlycheck):
         """Write modified properties into the entry."""
         mods = {}
         summary = []
+        if dchanged:
+            get_log().debug(f'Replica for suffix {self.suffix} properties are modified.')
+            self.add_change(f'Replica for suffix {self.suffix} properties are modified.')
         for attr,vals in dchanged.items():
             DiffResult.addModifier(mods, dn, DiffResult.REPLACEVALUE, attr, vals)
-        self.applyMods(mods, summary, False)
+        if not onlycheck:
+            self.parent().applyMods(mods, summary, False)
         del summary
 
-    def replica_demote_or_delete(self, old_role, new_role, rid_changed, should_delete):
+    def replica_demote_or_delete(self, old_role, new_role, rid_changed, should_delete, onlycheck):
         """This method demotes and/or delete a replica."""
+        args = f'rid_changed={rid_changed} should_delete={should_delete} {onlycheck}'
+        get_log().debug(f'replica_demote_or_delete: {old_role} ==> {new_role} {args}')
         tf_from = self.get_repl_role(old_role)
         tf_to = self.get_repl_role(new_role)
         if rid_changed:
@@ -1076,11 +1175,17 @@ class ConfigBackend(MyConfigObject):
             # There is a replica
             replica = self._getReplica()
             if tf_from[2] != demote_role:
-                replica.demote(demote_role)
+                if not onlycheck:
+                    get_log().debug(f'Demote replica for suffix {self.suffix} from {old_role} to {new_role}')
+                    replica.demote(demote_role)
+                self.add_change(f'Demote replica for suffix {self.suffix} from {old_role} to {new_role}')
             if should_delete:
-                replica.delete()
+                if not onlycheck:
+                    get_log().debug(f'Delete replica for suffix {self.suffix}')
+                    replica.delete()
+                self.add_change(f'Delete replica for suffix {self.suffix}')
 
-    def replica_create_or_promote(self, new_role, properties, should_create):
+    def replica_create_or_promote(self, new_role, properties, should_create, onlycheck):
         """This method creates or promotes a replica."""
         # Should create or promote
         inst = self._parent.getDirSrv()
@@ -1095,44 +1200,59 @@ class ConfigBackend(MyConfigObject):
                 'nsDS5ReplicaType': str(tf_to[0]),
                 **properties,
             }
-            get_log().debug(f'replica_create_or_promote: replicas.create(properties={properties})')
-            replicas.create(properties=properties)
+            if not onlycheck:
+                get_log().debug(f'replica_create_or_promote: replicas.create(properties={properties})')
+                replicas.create(properties=properties)
         else:
             # Promote case
             replica = self._getReplica()
             # Extract needed properties for 'promote'
             promote_args_config = {
                 'nsDS5ReplicaId': 'rid',
-                'nsDS5ReplicaBindDN': 'bindn',
+                'nsDS5ReplicaBindDN': 'binddn',
                 'nsDS5ReplicaBindDNGroup': 'binddn_group',
             }
             promote_args = { promote_args_config[key]:val
                 for key,val in properties.items() if key in promote_args_config }
-            get_log().debug(f'replica_create_or_promote: replicas.promote({tf_to[2]}, {promote_args})')
-            replica.promote(tf_to[2], **promote_args)
+            if not onlycheck:
+                get_log().debug(f'replica_create_or_promote: replicas.promote({new_role}, {promote_args})')
+                replica.promote(tf_to[2], **promote_args)
+            self.add_change(f'replica_create_or_promote: replicas.promote({new_role}, {promote_args})')
 
-    def update_replica(self, facts, roleaction):
+    def update_replica(self, facts, inst, onlycheck):
         """Update a replica."""
+        vto = self.replicarole
+        replica = Replicas(inst).get(self.suffix)
+        rtype = replica.get_attr_val_utf8('nsDS5ReplicaType')
+        flags = replica.get_attr_val_utf8('nsDS5Flags')
+        rid = replica.get_attr_val_int('nsDS5ReplicaID')
+        vfrom = None
+        for key, val in ConfigBackend.REPL_ROLES.items():
+            if (rtype, flags) == val[0:2]:
+                vfrom = key
+        get_log().debug(f'type={rtype} flags={flags} rid={rid} vfrom={vfrom}')
+        setattr(facts, 'replicaid', rid)
         # Lets determine if replica must be demoted and/or promoted.
-        tf_from = self.get_repl_role(roleaction.vfrom)
-        tf_to = self.get_repl_role(roleaction.vto)
+        tf_from = self.get_repl_role(vfrom)
+        tf_to = self.get_repl_role(vto)
         options = self.REPLICA_OPTIONS + self.get_options(('ReplicaBindDN',))
         iadict = self.get_interresting_properties(facts, options)
         dset = iadict['dset']
         dchanged = iadict['dchanged']
         rid_changed = 'nsDS5ReplicaId' in dchanged
+        get_log().debug(f'update_replica: dchanged={dchanged} {vfrom} ==> {vto}')
         from_weight = tf_from[3]
         to_weight = tf_to[3]
         if rid_changed or from_weight > to_weight:
-            self.replica_demote_or_delete( roleaction.vfrom, roleaction.vto, rid_changed, to_weight==0)
+            self.replica_demote_or_delete( vfrom, vto, rid_changed, to_weight==0, onlycheck)
         if rid_changed or from_weight < to_weight:
-            self.replica_create_or_promote(roleaction.vto, dset, from_weight==0)
+            self.replica_create_or_promote(vto, dset, from_weight==0, onlycheck)
         if from_weight * to_weight != 0:
             # Replica was neither created nor deleted
             # ==> Should update its modified properties
             # Rid is already handled through promote/demote
             dchanged.pop('replicaid', None)
-            self.synchronize_properties(ReplicaOption.DSEDN, dchanged)
+            self.synchronize_properties(ReplicaOption.DSEDN, dchanged, onlycheck)
 
     def _ReplicaRoleAction(self=None, action=None, action2perform=None):
         get_log().debug(f'_ReplicaRoleAction names={self._parent.name}.{self.name}, \
@@ -1165,10 +1285,16 @@ class ConfigBackend(MyConfigObject):
             return None
         if action2perform == OptionAction.UPDATE:
             setattr(action.facts, option.name, action.vto)
-            action.target.update_replman(action.facts)
-            action.target.update_replica(action.facts, action)
-            action.target.update_agmts(action.facts)
         return None
+
+    def update(self, facts, summary, onlycheck, args=None):
+        super().update(facts, summary, onlycheck, args=None)
+        if self.name in facts.backends:
+            facts = facts.backends[self.name]
+        inst = self._parent.getDirSrv()
+        self.update_replica(facts, inst, onlycheck)
+        self.update_replman(facts, inst, onlycheck)
+        self.update_agmts(facts, inst, onlycheck)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
@@ -1197,7 +1323,7 @@ class ConfigBackend(MyConfigObject):
                 actions = action.target.getAllActions(action.target)
                 for a in actions:
                     if getattr(a.option, 'dsedn', None) == ConfigBackend.BEDN and a.getValue():
-                        prop[a.option.dsename] = ensure_bytes(a.getValue())
+                        prop[a.option.dsename] = Key.to_bytes(a.getValue())
                 assert 'nsslapd-suffix' in prop
                 be = Backend(inst.getDirSrv())
                 get_log().debug(f"Creating backend dn:{dn} properties:{prop}")
@@ -1208,9 +1334,14 @@ class ConfigBackend(MyConfigObject):
                 be.delete()
         return None
 
+def _build_options(options):
+    return ( Option(opt.name, opt.desc, dseName=opt.dsename) for opt in options )
+
 
 class ConfigDs389Agmt(MyConfigObject):
-    OPTIONS = ConfigBackend.OPTIONS + ConfigAgmt.OPTIONS
+    OPTIONS = _build_options( ConfigBackend.OPTIONS + ConfigAgmt.OPTIONS + (
+        Option('target', 'The replica agreements tagetted host or instance of backend.'),
+    ))
 
     def getFacts(self):
         pass
@@ -1218,7 +1349,7 @@ class ConfigDs389Agmt(MyConfigObject):
     @staticmethod
     def getFactsFromEntry(backend, entry, target):
         hlog = f"ConfigDs389Agmt.getFactsFromEntry: Backend {backend.name}"
-        get_log().error(f"{hlog} target={target} entry={target}")
+        get_log().debug(f"{hlog} target={target} entry={target}")
         # Handle the paramaters that are stored in backend.
         seen = {}
         for option in backend.OPTIONS:
@@ -1228,25 +1359,25 @@ class ConfigDs389Agmt(MyConfigObject):
                 vdef = option.vdef
                 seen[dsename.lower()] = True
                 if val and val != vdef:
-                    get_log().error(f"{hlog} Agmt {target} backend option:{option.name} val:{val}")
+                    get_log().debug(f"{hlog} Agmt {target} backend option:{option.name} val:{val}")
                     setattr(backend, option.name, val)
         # If dse389agmt does not already exists, lets create it:
         configroot = backend.parent().parent()
         agmts = getattr(configroot, AGMTS, None)
-        get_log().error(f"ConfigDs389Agmt.getFactsFromEntry: seen={seen}")
+        get_log().debug(f"ConfigDs389Agmt.getFactsFromEntry: seen={seen}")
         if target in agmts:
             return
         agmt = ConfigDs389Agmt(target, parent=configroot)
         agmts[target] = agmt
-        get_log().error(f"{hlog} Agmt {target} option:target val:{target} tye:{type(target)}")
-        get_log().error(f"ConfigDs389Agmt.getFactsFromEntry: configroot={configroot}")
+        get_log().debug(f"{hlog} Agmt {target} option:target val:{target} tye:{type(target)}")
+        get_log().debug(f"ConfigDs389Agmt.getFactsFromEntry: configroot={configroot}")
         setattr(agmt,'target', target)
         for option in ConfigAgmt.OPTIONS:
             if option.dsename and option.dsename.lower() not in seen:
                 val = entry.getSingleValue(option.dsename)
                 vdef = option.vdef
                 if val and val != vdef:
-                    get_log().error("{hlog} Agmt {target} agmt option:{option.name} val:{val}")
+                    get_log().debug("{hlog} Agmt {target} agmt option:{option.name} val:{val}")
                     setattr(agmt, option.name, val)
 
 
@@ -1439,14 +1570,13 @@ class ConfigInstance(MyConfigObject):
             return dirSrv
         if mode == ConfigInstance.DIRSRV_NOLDAPI:
             if status == "stopped":
-                dirSrv.start()
+                dirSrv.start(post_open=False)
         elif mode == ConfigInstance.DIRSRV_LDAPI:
             dirSrv.setup_ldapi()
         elif mode == ConfigInstance.DIRSRV_OPEN:
             dirSrv.setup_ldapi()
             if status == "stopped":
-                dirSrv.start()
-            dirSrv.open()
+                dirSrv.start(post_open=True)
         return dirSrv
 
     def exists(self):
@@ -1474,7 +1604,7 @@ class ConfigInstance(MyConfigObject):
             vdef = action.perform(OptionAction.DEFAULT)
             get_log().debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val}")
             if val and (val != vdef or action.option.name == 'state'):
-                get_log().error(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val} type:{type(val)}")
+                get_log().debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val} type:{type(val)}")
                 setattr(self, action.option.name, val)
 
         if 'nsbackendinstance' in dse.class2dn:
@@ -1816,14 +1946,15 @@ class ConfigRoot(MyConfigObject):
     def __init__(self, name=ROOT_ENTITY):
         super().__init__(name)
         self.ds389_prefix = self.getPath('{ds389_prefix}')
+        self._changes = []
 
-    #def tolist(self):
-        #d = super().tolist()
-        #res = {}
-        #for key,val in { 'instances': INSTANCES, 'prefix': PREFIX, 'state': 'state' }.items():
-        #    if key in d:
-        #        res[val] = d[key]
-        #return res
+    def update(self, facts, summary, onlycheck, args=None):
+        super().update(facts, summary, onlycheck, args)
+        for change in self._changes:
+            summary.append(change)
+
+    def add_change(self, change):
+        self._changes.append(change)
 
     def MyPathNames(self):
         return { 'hostname' : self.name, PREFIX : os.environ.get('PREFIX', "") }
