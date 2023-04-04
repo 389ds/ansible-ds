@@ -90,11 +90,11 @@ from lib389.backend import Backend
 from lib389.index import Index
 from lib389.instance.setup import SetupDs
 from lib389.utils import normalizeDN, escapeDNFiltValue, get_instance_list
-from lib389._constants import ReplicaRole
+from lib389._constants import ReplicaRole, INSTALL_LATEST_CONFIG
 from lib389.replica import Replicas, Replica, Changelog
 from lib389.idm.services import ServiceAccount
 
-from .ds389_util import Key, DSE, DiffResult, dictlist2dict, Entry, LdapOp, get_log
+from .ds389_util import Key, DSE, DiffResult, Entry, LdapOp, get_log
 
 ROOT_ENTITY = socket.gethostname()
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
@@ -106,7 +106,8 @@ PREFIX = 'ds389_prefix'
 EMPTY_DICT = MappingProxyType({}) # Avoid pylint error about unsafe parameters
 
 def isTrue(val):
-    return val is True or val.lower() in ("true", "started")
+    valstr = Key.to_str(val)
+    return valstr is True or valstr.lower() in ("true", "started")
 
 def _get_new_value(inst, dn, attr):
     # Get value from entity or from dse.ldif file
@@ -416,6 +417,24 @@ class MyConfigObject():
         self.setCtx()
         self._isDeleted = None
 
+    def _set_child(self, key, val):
+        """Recurse on children."""
+        newval = {}
+        # Lets recurse on the children objects
+        if val:
+            for obj in val:
+                name = obj['name']
+                child_obj = self.CHILDREN[key](name, parent=self)
+                child_obj.set(obj)
+                if key == AGMTS:
+                    get_log().debug('Calling ConfigDs389Agmt.add from _set_child')
+                    ConfigDs389Agmt.add(newval, child_obj)
+                else:
+                    if name in newval:
+                        raise ValueError(f"Duplicate 'name': {name} found in module options")
+                    newval[name] = child_obj
+            self.setOption(key, newval)
+
     def set(self, args):
         """Set the wanted options in the instance. args is a string containing json or a dict."""
         get_log().debug(f"MyConfigObject.set {self} {self.name} <-- {args}")
@@ -429,12 +448,7 @@ class MyConfigObject():
             if key.startswith('_'):
                 continue
             if key in self.CHILDREN.keys():
-                newval = {}
-                # Lets recurse on the children objects
-                for name, obj in dictlist2dict(val).items():
-                    newval[name] = self.CHILDREN[key](name, parent=self)
-                    newval[name].set(obj)
-                self.setOption(key, newval)
+                self._set_child(key, val)
                 continue
             if key in ('state',):
                 self.setOption(key, val)
@@ -568,6 +582,16 @@ class MyConfigObject():
             return entry.hasSameAttributes(dse.dn2entry[dn], INDEX_ATTRS)
         return False
 
+    def get_state(self):
+        """Get that instance "state" option value."""
+        state = getattr(self, "state", None)
+        parent = self.parent()
+        if state is None and parent:
+            state = parent.get_state()
+        if state is None or (state == "updated" and not isinstance(self, ConfigRoot)):
+            state = "present"
+        return state
+
     def __getstate__(self):
         # Lets hide the variable that we do not want to see in Config dump
         state = self.__dict__.copy()
@@ -635,15 +659,14 @@ class MyConfigObject():
             return facts
         if self.getClass() == facts.getClass() and self.name == facts.name:
             return facts
-        # Handle special case for agmt
-        if ConfigDs389Agmt.is_cn(self.name):
-            # Handling a ConfigDs389Agmt mapped on a ConfigAgmt entry
+        # Handling a ConfigDs389Agmt mapped on a ConfigAgmt entry
+        rootfacts = facts.getConfigRoot()
+        if isinstance(self, ConfigAgmt) and ConfigDs389Agmt.is_cn(self.name):
             name = ConfigDs389Agmt.target_from_cn(self.name)
-            rootfacts = facts.getConfigRoot()
-            if name in rootfacts.ds389_agmts:
-                facts = rootfacts.ds389_agmts[name]
-                get_log().debug(f'find fact for {self.parent().fullname()} agmt={self.name} facts={facts}')
-                return facts
+            instname = self.parent().parent().name
+            agmt = ConfigDs389Agmt.lookup(rootfacts, name, self.parent().suffix, instname=instname)
+            if agmt:
+                return agmt
         for var in facts.CHILDREN.keys():
             mylist = facts.__dict__[var]
             for child in mylist.values():
@@ -668,23 +691,25 @@ class MyConfigObject():
                 actions.append(action)
         return sorted(actions, key = lambda x : x.getPrio())
 
-    def update(self, facts, summary, onlycheck, args=None):
-        if not facts:
-            facts = ConfigRoot()
-            facts.getFacts()
-        facts = self.findFact(facts)
+    def update_children(self, facts, summary, onlycheck, args=None):
+        """Update children entities."""
+        for var in self.CHILDREN.keys():
+            for c in self.__dict__[var].values():
+                get_log().debug(f"{self.getClass()}.update: c={c}")
+                c.update(facts, summary, onlycheck, args)
 
+    def update_single_entity(self, facts, summary, onlycheck, args=None):
+        """Update this entities."""
         # Determine if the change should be logged in first phase
         # Note: if updating an already existing instance then messages are displayed by applyMods
         inst = self.getConfigInstance()
         display_msg = True
         if inst and not inst._mustCreate:
             display_msg = False
-        get_log().debug(f"Updating entity {self.name}  with facts {facts.name}. Entity is {self}. Facts is {facts}.")
-
         actions = self.getAllActions(facts)
+        get_log().debug(f"{self.getClass()}.update: actions={actions}")
         for action in actions:
-            get_log().debug(f"{self.getClass()}.update: action={action}")
+            get_log().debug(f"{self.getClass()}.update: action={action} vfrom={action.vfrom} vto={action.vto}")
             if self._isDeleted is True:
                 return
             if action.vfrom == action.vto:
@@ -705,9 +730,23 @@ class MyConfigObject():
             inst.applyMods(self._cfgMods, summary, onlycheck)
             inst.applyMods(getattr(self, "dseMods", None), summary, onlycheck)
 
-        for var in self.CHILDREN.keys():
-            for c in self.__dict__[var].values():
-                c.update(facts, summary, onlycheck, args)
+    def update(self, facts, summary, onlycheck, args=None):
+        """Update this entities and its children."""
+        get_log().debug(f"Updating entity {self.getClass()}.{self.name}.")
+        if not facts:
+            facts = ConfigRoot()
+            facts.getFacts()
+        facts = self.findFact(facts)
+
+        get_log().debug(f"Updating entity {self.name}  with facts {facts.name}. Entity is {self}. Facts is {facts}.")
+        if self.get_state() == 'absent':
+            #Children must be deleted vefore the current entity is deleted.
+            self.update_children(facts, summary, onlycheck, args)
+            self.update_single_entity(facts, summary, onlycheck, args)
+        else:
+            #Children must be added after the current entity is created.
+            self.update_single_entity(facts, summary, onlycheck, args)
+            self.update_children(facts, summary, onlycheck, args)
 
     def addModifier(self, dn, otype, attr, val):
         DiffResult.addModifier(self._cfgMods, dn, otype, attr, val)
@@ -771,20 +810,21 @@ class ConfigIndex(MyConfigObject):
 
     def getFacts(self):
         self.state = 'present'
-
         actions = self.getAllActions(self)
         bename = self.getPath("{bename}")
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
             if val and val != vdef:
-                get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+                func = "ConfigIndex.getFacts:"
+                get_log().debug(f"{func} Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
                 setattr(self, action.option.name, val)
 
     def _stateAction(self=None, action=None, action2perform=None):
         option = action.option
         bename = self.getPath("{bename}")
-        get_log().debug(f"Configindex._stateAction: dn= {self.getPath(ConfigIndex.IDXDN)}")
+        get_log().debug(f"Configindex._stateAction: vfrom={action.vfrom} vto={action.vto} \
+            action2perform={action2perform} dn={self.getPath(ConfigIndex.IDXDN)}")
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
@@ -868,7 +908,7 @@ class ConfigAgmt(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
+            get_log().debug(f"ConfigAgmt.getFacts: Agmt {self.name} from Backend {bename} option:{action.option.name} val:{val}")
             if val and val != vdef:
                 setattr(self, action.option.name, val)
 
@@ -994,6 +1034,7 @@ class ConfigBackend(MyConfigObject):
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent=parent)
+        self._replica_updated = False
 
     def MyPathNames(self):
         s = getattr(self, 'suffix', None)
@@ -1026,12 +1067,12 @@ class ConfigBackend(MyConfigObject):
             # Check whether the suffix matchs current backend.
             suffix = entry.getSingleValue('nsDS5ReplicaRoot')
             if suffix != self.suffix:
-                get_log.debug(f'Ignoring replica agreement {dn} which has wrong suffix')
+                get_log().debug(f'Ignoring replica agreement {dn} which has wrong suffix')
                 continue
             # Check that dn is conform to lib389 ones
             m = re.match('cn=([^,]*),cn=replica,cn=.*,cn=mapping tree,cn=config', dn)
             if not m:
-                get_log.info(f'Ignoring legacy replica agreement {dn}')
+                get_log().info(f'Ignoring legacy replica agreement {dn}')
                 continue
             name = m.group(1)
             get_log().debug(f"{hlog} Handling agmt {entry} dn={dn} name={name}")
@@ -1043,7 +1084,9 @@ class ConfigBackend(MyConfigObject):
                 agmt = ConfigDs389Agmt(name, parent=self)
                 agmt.setOption('target', name)
                 agmt.getFactsFromEntry(self, entry)
-                self.getConfigRoot().ds389_agmts[agmt.name] = agmt
+                setattr(agmt, 'suffix', suffix)
+                get_log().debug('Calling ConfigDs389Agmt.add from getAgmtsFacts')
+                ConfigDs389Agmt.add(self.getConfigRoot(), agmt, instname=self.parent().name)
             else:
                 agmt = ConfigAgmt(name, parent=self, beentrydn=dn)
                 self.agmts[agmt.name] = agmt
@@ -1102,10 +1145,11 @@ class ConfigBackend(MyConfigObject):
     def _getReplica(self):
         inst = self._parent.getDirSrv()
         replicas = Replicas(inst)
-        replica = replicas.get(self.suffix)
-        if replica:
+        try:
+            replica = replicas.get(self.suffix)
             return replica
-        return Replica(inst, self.suffix)
+        except ldap.NO_SUCH_OBJECT:
+            return Replica(inst, self.suffix)
 
     def _getChangelog(self):
         inst = self._parent.getDirSrv()
@@ -1146,6 +1190,8 @@ class ConfigBackend(MyConfigObject):
                 get_log().debug(f"ds389_agmts should have a 'fulltargetname' option: {agmt}")
                 raise AttributeError("ds389_agmts should have a 'fulltargetname' option")
             instname = agmt.fulltargetname.split('.')[-2]
+            get_log().debug(f"update_agmts: instname={instname} agmt.suffix={agmt.suffix} \
+                self.suffix={self.suffix} self.parent().name={self.parent().name}")
             if agmt.suffix == self.suffix and instname.lower() != self.parent().name.lower():
                 # Add agmt if suffix is ok and if it does not target itself
                 self.update_single_ds389agmt(agmt, facts, inst, onlycheck)
@@ -1161,6 +1207,14 @@ class ConfigBackend(MyConfigObject):
             errmsg = f"Option 'ReplicaBindDn' is missing in {cfginst.name}.{self.name} on host {ROOT_ENTITY}"
             get_log().debug(f'update_replman: {errmsg}')
             return
+        # Check if we can use that dn
+        match = re.fullmatch('cn=([^,]*),(([^,]*,)*cn=config)', adn)
+        if not match:
+            get_log().debug(f'update_replman: Unable to handle dn {adn}')
+            return
+        # extract cn and basedn
+        acn = match.group(1)
+        basedn = match.group(2)
         # Get the password
         try:
             apw = self.replicacredentials
@@ -1181,13 +1235,6 @@ class ConfigBackend(MyConfigObject):
                 get_log().debug(f'Updating password on entry {adn}')
                 account.reset_password(apw)
             return
-        # Check if we can use that dn
-        match = re.fullmatch('cn=([^,]*),(([^,]*,)*cn=config)', adn)
-        if not match:
-            raise AttributeError(f'Replication bind dn {adn} account does not exists.')
-        # extract cn and basedn
-        acn = match.group(1)
-        basedn = match.group(2)
         # Entry does not exist ==> Create it.
         self.add_change(f'Adding entry {adn}')
         if not onlycheck:
@@ -1198,7 +1245,6 @@ class ConfigBackend(MyConfigObject):
                 'userpassword': apw,
             }
             account.create(rdn=f'cn={acn}', properties=properties, basedn=basedn)
-            assert account.exists()
 
     def get_repl_role(self, val):
         """Get info about replica role."""
@@ -1209,18 +1255,13 @@ class ConfigBackend(MyConfigObject):
             raise AttributeError(f"Invalid 'ReplicaRole' value in backend {self._parent.name}.{self.name}")
         return ConfigBackend.REPL_ROLES[val]
 
-    def synchronize_properties(self, dn, dchanged, onlycheck):
+    def synchronize_properties(self, dn, dchanged):
         """Write modified properties into the entry."""
-        mods = {}
-        summary = []
         if dchanged:
             get_log().debug(f'Replica for suffix {self.suffix} properties are modified.')
             self.add_change(f'Replica for suffix {self.suffix} properties are modified.')
         for attr,vals in dchanged.items():
-            DiffResult.addModifier(mods, dn, DiffResult.REPLACEVALUE, attr, vals)
-        if not onlycheck:
-            self.parent().applyMods(mods, summary, False)
-        del summary
+            self.addModifier(dn, DiffResult.REPLACEVALUE, attr, vals)
 
     def replica_demote_or_delete(self, old_role, new_role, rid_changed, should_delete, onlycheck):
         """This method demotes and/or delete a replica."""
@@ -1286,6 +1327,9 @@ class ConfigBackend(MyConfigObject):
 
     def update_replica(self, facts, inst, onlycheck):
         """Update a replica."""
+        if self._replica_updated:
+            return
+        self._replica_updated = True
         vfrom = None
         rid = None
         # Get replica facts
@@ -1312,10 +1356,12 @@ class ConfigBackend(MyConfigObject):
         iadict = self.get_interresting_properties(facts, options)
         dset = iadict['dset']
         dchanged = iadict['dchanged']
-        rid_changed = 'nsDS5ReplicaId' in dchanged
-        get_log().debug(f'update_replica: dchanged={dchanged} {vfrom} ==> {vto}')
         from_weight = tf_from[3]
         to_weight = tf_to[3]
+        # Check if we are in supplier->supplier case and replica id has changed.
+        #  In that case we should both demote to hub then promote back to supplier with new new rid
+        rid_changed = 'nsDS5ReplicaId' in dchanged and from_weight == 3 and to_weight == 3
+        get_log().debug(f'update_replica: dchanged={dchanged} {vfrom} ==> {vto}')
         if rid_changed or from_weight > to_weight:
             self.replica_demote_or_delete( vfrom, vto, rid_changed, to_weight==0, onlycheck)
         if rid_changed or from_weight < to_weight:
@@ -1325,7 +1371,7 @@ class ConfigBackend(MyConfigObject):
             # ==> Should update its modified properties
             # Rid is already handled through promote/demote
             dchanged.pop('replicaid', None)
-            self.synchronize_properties(ReplicaOption.DSEDN, dchanged, onlycheck)
+            self.synchronize_properties(ReplicaOption.DSEDN, dchanged)
 
     def _ReplicaRoleAction(self=None, action=None, action2perform=None):
         get_log().debug(f'_ReplicaRoleAction names={self._parent.name}.{self.name}, \
@@ -1360,22 +1406,56 @@ class ConfigBackend(MyConfigObject):
             setattr(action.facts, option.name, action.vto)
         return None
 
-    def update(self, facts, summary, onlycheck, args=None):
-        super().update(facts, summary, onlycheck, args=None)
-        if self.name in facts.backends:
-            facts = facts.backends[self.name]
+    def update_replication(self, facts, onlycheck):
+        """Update replica and replica agreements."""
         inst = self._parent.getDirSrv()
+        self.update_replica(facts, inst, onlycheck)
         self.update_replman(facts, inst, onlycheck)
         self.update_agmts(facts, inst, onlycheck)
 
-    def _stateAction(self=None, action=None, action2perform=None):
+    def update(self, facts, summary, onlycheck, args=None):
+        get_log().debug(f"Updating entity ConfigBackend.{self.name}.")
+        if self.name in facts.backends:
+            facts = facts.backends[self.name]
+        if self.get_state() == 'absent':
+            self.update_replication(facts, onlycheck)
+            super().update(facts, summary, onlycheck, args=None)
+        else:
+            super().update(facts, summary, onlycheck, args=None)
+            self.update_replication(facts, onlycheck)
+
+    def _stateActionUpdate(self, action):
         option = action.option
+        setattr(action.facts, option.name, action.vto)
+        inst = action.target.getConfigInstance()
+        if action.vto == "present":
+            # In fact that is the rdn that Backend.create method needs.
+            dn = f'cn={action.target.name}'
+            prop = {}
+            actions = action.target.getAllActions(action.target)
+            for a in actions:
+                if getattr(a.option, 'dsedn', None) == ConfigBackend.BEDN and a.getValue():
+                    prop[a.option.dsename] = Key.to_bytes(a.getValue())
+            assert 'nsslapd-suffix' in prop
+            be = Backend(inst.getDirSrv())
+            if 'sample_entries' in prop and isTrue(prop['sample_entries']):
+                prop['sample_entries'] = INSTALL_LATEST_CONFIG
+            get_log().debug(f"Creating backend dn:{dn} properties:{prop}")
+            be.create(dn, prop)
+        else:
+            dn = action.target.getPath(ConfigBackend.BEDN)
+            be = Backend(action.target.getConfigInstance().getDirSrv(), dn=dn)
+            be.delete()
+        action.target.update_replica(action.facts, inst.getDirSrv(), False)
+
+    def _stateAction(self=None, action=None, action2perform=None):
         if _is_none_ignored(self, action):
             action.vto = "present"
         if action2perform == OptionAction.DESC:
+            suffix = getattr(action.target, 'suffix', None)
             if action.vto == "present":
-                return f"Creating backend {action.target.name} on suffix {action.target.suffix}"
-            return f"Deleting backend {action.target.name} on suffix {action.target.suffix}"
+                return f"Creating backend {action.target.name} on suffix {suffix}"
+            return f"Deleting backend {action.target.name} on suffix {suffix}"
         if action2perform == OptionAction.DEFAULT:
             return "present"
         if action2perform == OptionAction.FACT:
@@ -1386,25 +1466,7 @@ class ConfigBackend(MyConfigObject):
         if action2perform == OptionAction.CONFIG:
             return None
         if action2perform == OptionAction.UPDATE:
-            setattr(action.facts, option.name, action.vto)
-            inst = action.target.getConfigInstance()
-            if action.vto == "present":
-                # In fact that is the rdn that Backend.create method needs.
-                dn = f'cn={action.target.name}'
-                prop = {}
-                actions = action.target.getAllActions(action.target)
-                for a in actions:
-                    if getattr(a.option, 'dsedn', None) == ConfigBackend.BEDN and a.getValue():
-                        prop[a.option.dsename] = Key.to_bytes(a.getValue())
-                assert 'nsslapd-suffix' in prop
-                be = Backend(inst.getDirSrv())
-                get_log().debug(f"Creating backend dn:{dn} properties:{prop}")
-                be.create(dn, prop)
-            else:
-                dn = action.target.getPath(ConfigBackend.BEDN)
-                be = Backend(action.target.getConfigInstance().getDirSrv(), dn=dn)
-                be.delete()
-            action.target.update_replica(action.facts, inst.getDirSrv(), False)
+            self._stateActionUpdate(action)
         return None
 
 def _build_options(options):
@@ -1422,6 +1484,56 @@ class ConfigDs389Agmt(MyConfigObject):
 
     def getFacts(self):
         pass
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._instnames = []
+
+    def _to_log(self):
+        """Des cribe the agreement for log."""
+        hlog = f'ConfigDs389Agmt name:{self.name} fulltargetname:{self.fulltargetname}'
+        return f'{hlog} suffix:{self.suffix} _instnames:{self._instnames}'
+
+    @staticmethod
+    def add(root, agmt, instname = None):
+        """This methods add a new agmt in ds38_agmts list."""
+        # Note: name may be dupplicate
+        assert isinstance(agmt, ConfigDs389Agmt)
+        if isinstance(root, dict):
+            rootcfg = ConfigRoot()
+            setattr(rootcfg, 'ds389_agmts', root)
+            get_log().debug('Calling recursively ConfigDs389Agmt.add')
+            ConfigDs389Agmt.add(rootcfg, agmt, instname=instname)
+            return
+        assert isinstance(root, ConfigRoot)
+        get_log().debug(f'ConfigDs389Agmt.add({agmt._to_log()}, instname={instname})')
+        found = ConfigDs389Agmt.lookup(root, agmt.name, agmt.suffix, instname)
+        if not found:
+            if instname is not None and instname not in agmt._instnames:
+                agmt._instnames.append(instname)
+            name = agmt.name
+            # Get an unique name
+            idx = 1
+            while name in root.ds389_agmts:
+                name = f'{agmt.name}_{idx}'
+                idx += 1
+            root.ds389_agmts[name] = agmt
+        elif instname is not None and instname not in found._instnames:
+            found._instnames.append(instname)
+
+    @staticmethod
+    def lookup(root, name, suffix, instname = None):
+        """This methods search an agmt in ds38_agmts list."""
+        hlog = f'ConfigDs389Agmt.lookup(name={name}, suffix={suffix}, instname={instname})'
+        for agmt in root.ds389_agmts.values():
+            if agmt.name != name or agmt.suffix != suffix:
+                continue
+            if instname is not None and instname not in agmt._instnames:
+                continue
+            get_log().debug(f'{hlog} ==> {agmt._to_log()}')
+            return agmt
+        get_log().debug(f'{hlog} ==> None')
+        return None
 
     @staticmethod
     def is_cn(cn):
@@ -1446,7 +1558,7 @@ class ConfigDs389Agmt(MyConfigObject):
         val = entry.getSingleValue('description')
         if val:
             option = 'fulltargetname'
-            get_log().debug(f"{hlog} option:{option} val:{val}")
+            get_log().debug("{hlog} option:{option} val:{val}")
             setattr(self, option, val)
         for option in backend.OPTIONS:
             if isinstance(option, AgmtTgtOption) or option in ConfigBackend.REPLICA_MANAGER_OPTIONS:
@@ -1565,7 +1677,7 @@ class ConfigInstance(MyConfigObject):
         DSEOption('nsslapd-pagedidlistscanlimit', LDBM_CONFIG_DB, '0', "idllistscanlimit when performing a paged search", otype="int"),
         DSEOption('nsslapd-rangelookthroughlimit', LDBM_CONFIG_DB, '5000', "Sets a separate range look-through limit that applies to all users, including Directory Manager", otype="int"),
         DSEOption('nsslapd-backend-opt-level', LDBM_CONFIG_DB, '1', "This parameter can trigger experimental code to improve write performance", otype="int"),
-        SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "updated", "absent")),
+        SpecialOption('state', 2, "Indicate whether the instance is added(present), modified(updated), or removed(absent)", vdef="present", choice= ("present", "absent")),
     )
 
     DSE_PATH='{ds389_prefix}/etc/dirsrv/slapd-{instname}/dse.ldif'
@@ -1828,6 +1940,7 @@ class ConfigInstance(MyConfigObject):
         return None
 
     def update(self, facts, summary, onlycheck, args=None):
+        get_log().debug(f"Updating entity ConfigInstance.{self.name}.")
         curstate = self._getInstanceStatus()
         if self.state == "absent":
             if curstate != "absent":
@@ -2032,7 +2145,54 @@ class ConfigRoot(MyConfigObject):
         self.ds389_prefix = self.getPath('{ds389_prefix}')
         self._changes = []
 
+    def _add_absent_children(self, target, facts, key):
+        """Add the children that are in fact but are not set anf mark them explicitly as absent."""
+        cdict = getattr(target, key, [])
+        fdict = getattr(facts, key, [])
+        for name,fchild in fdict.items():
+            if name in cdict:
+                #Check children.
+                cchild = cdict[name]
+            else:
+                get_log().debug(f"Adding absent entity: {type(fchild)} name={name}")
+                cchild = type(fchild)(name, parent=target)
+                #Dupkicate the options
+                for option in fchild.OPTIONS:
+                    val = str(getattr(fchild, option.name, None))
+                    if val is not None:
+                        setattr(cchild, option.name, val)
+                setattr(cchild, 'state', 'absent')
+                cdict[name] = cchild
+            #And recurse on childrens
+            for ckey in cchild.CHILDREN.keys():
+                self._add_absent_children(cchild, fchild, ckey)
+
+    def _update_add_absent_entities(self, facts):
+        """If state is 'updated': Add the children that exists in 389ds but not in wanted config
+           and mark them explicitly as absent."""
+        state = getattr(self, "state", "present")
+        get_log().debug(f"ConfigRoot state is: {state}")
+        if state != 'updated':
+            return
+        #Handle standard children entities
+        for key in self.CHILDREN.keys():
+            if key != AGMTS:
+                self._add_absent_children(self, facts, key)
+        #Handle ds389_agmt special case (because in this case 'name' is not discriminant).
+        for agmt in facts.ds389_agmts.values():
+            if not ConfigDs389Agmt.lookup(self, agmt.name, agmt.suffix):
+                get_log().debug(f"Adding absent ConfigDs389Agmt name={agmt.name} suffix={agmt.suffix}")
+                newagmt = ConfigDs389Agmt(agmt.name, parent=self)
+                setattr(newagmt, 'state', 'absent')
+                setattr(newagmt, 'fulltargetname', agmt.fulltargetname)
+                setattr(newagmt, 'target', agmt.target)
+                setattr(newagmt, 'suffix', agmt.suffix)
+                ConfigDs389Agmt.add(self, newagmt)
+        get_log().debug(f"_update_add_absent_entities: Global state is 'updated' wanted state is now: {self.todict()}")
+
     def update(self, facts, summary, onlycheck, args=None):
+        get_log().debug(f"Updating entity ConfigRoot.{self.name}.")
+        self._update_add_absent_entities(facts)
         super().update(facts, summary, onlycheck, args)
         for change in self._changes:
             summary.append(change)
@@ -2087,7 +2247,7 @@ class ConfigRoot(MyConfigObject):
         get_log().debug(f'ConfigRoot._get_instances_list: instances_to_add={instances_to_add} \
                           instances_to_remove={instances_to_remove} action.vto={action.vto}')
         if action.vto == "absent":
-            instances_to_remove.extend(existing_instances)
+            instances_to_remove = existing_instances
             instances_to_add = []
         elif action.vto in ("stopped","started"):
             instances_to_add = []
@@ -2099,6 +2259,18 @@ class ConfigRoot(MyConfigObject):
                           instances_to_remove={instances_to_remove} \
                           existing_instances={existing_instances} action.vto={action.vto}')
         return [existing_instances, instances_to_add, instances_to_remove]
+
+    @staticmethod
+    def start_or_stop_instances(existing_instances, vto):
+        """Starts ot stop the instances."""
+        if vto in ( "stopped", "started" ):
+            for instance in existing_instances:
+                dirSrv = DirSrv()
+                dirSrv.local_simple_allocate(serverid=instance)
+                if vto == "stopped":
+                    dirSrv.stop()
+                else:
+                    dirSrv.start()
 
     def _stateAction(self=None, action=None, action2perform=None):
         """This is the state special action callback."""
@@ -2121,13 +2293,7 @@ class ConfigRoot(MyConfigObject):
         if action2perform == OptionAction.UPDATE:
             option = action.option
             setattr(action.facts, option.name, action.vto)
-            for instance in existing_instances:
-                dirSrv = DirSrv()
-                dirSrv.local_simple_allocate(serverid=instance)
-                if action.vto == "stopped":
-                    dirSrv.stop()
-                elif action.vto == "started":
-                    dirSrv.start()
+            ConfigRoot.start_or_stop_instances(existing_instances, action.vto.lower())
             for instance in instances_to_remove:
                 dirSrv = DirSrv()
                 dirSrv.local_simple_allocate(serverid=instance)
