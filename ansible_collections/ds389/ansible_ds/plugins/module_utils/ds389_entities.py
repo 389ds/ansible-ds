@@ -35,6 +35,7 @@
 # pylint: disable=missing-class-docstring
 # pylint: disable=invalid-name
 # pylint: disable=consider-iterating-dictionary
+# pylint: disable=no-self-use
 
 
 
@@ -48,7 +49,6 @@ short_description: This module provides utility classes and function for handlin
 version_added: "1.0.0"
 
 description:
-    - NormalizedDict class:   a dict whose keys are normalized
     - Option class:           class handling ansible-ds parameters for each ConfigObject
     - DSEOption class:        class handling the Option associated with ds389 parameters that are in dse.ldif
     - ConfigOption class:     class handling the Option associated with ds389 parameters that are in ds389_create template file
@@ -84,7 +84,7 @@ from types import MappingProxyType
 import yaml
 import ldap
 from lib389 import DirSrv
-from lib389.agreement import Agreement, Agreements
+from lib389.agreement import Agreement
 from lib389.dseldif import DSEldif
 from lib389.backend import Backend
 from lib389.index import Index
@@ -94,7 +94,7 @@ from lib389.utils import ensure_bytes, ensure_list_bytes, normalizeDN, \
 from lib389._constants import ReplicaRole
 from lib389.replica import Replicas, Replica, Changelog
 
-from .ds389_util import Key, NormalizedDict, DSE, DiffResult, dictlist2dict, Entry, LdapOp, get_log
+from .ds389_util import Key, DSE, DiffResult, dictlist2dict, Entry, LdapOp, get_log
 
 ROOT_ENTITY = "ds"
 INDEX_ATTRS = ( 'nsIndexType', 'nsMatchingRule' )
@@ -238,8 +238,10 @@ class Option:
                 return vdef
             return action.target.getDefaultDSE().getSingleValue(dsedn, option.dsename)
         if action2perform == OptionAction.FACT:
-            #log.info(f"_action: OptionAction.FACT  dsedn={dsedn} {option.dsename}")
-            return action.target.getDSE().getSingleValue(dsedn, option.dsename)
+            val = action.target.getDSE().getSingleValue(dsedn, option.dsename)
+            get_log().debug(f"_action: OptionAction.FACT  dsedn={dsedn} dsename={option.dsename} val={val} type={type(val)}")
+            get_log().error(f"_action: OptionAction.FACT  dsedn={dsedn} dsename={option.dsename} val={val} type={type(val)}")
+            return val
         if action2perform == OptionAction.CONFIG:
             val = action.getValue()
             get_log().debug(f"Instance: {action.target.name} config['slapd'][{option.name}] = {val} target={action.target}")
@@ -465,7 +467,7 @@ class MyConfigObject():
 
     def setCtx(self):
         self._infConfig = ConfigParser()
-        self._cfgMods = NormalizedDict()
+        self._cfgMods = {}
         self._isDeleted = False
 
     def getPathNames(self):
@@ -524,7 +526,8 @@ class MyConfigObject():
         if entry.hasValue('nssystemindex', 'true') is True:
             return True
         dn = f"cn={attrname},cn=default indexes,cn=config,cn=ldbm database,cn=plugins,cn=config"
-        if normalizeDN(dn) in dse.class2dn['nsindex']:
+        dn = Key.from_val(dn)
+        if dn in dse.class2dn['nsindex']:
             return entry.hasSameAttributes(dse.dn2entry[dn], INDEX_ATTRS)
         return False
 
@@ -544,6 +547,8 @@ class MyConfigObject():
         return state
 
     def setOption(self, option, val):
+        get_log().debug(f'Entity: {self.name} option:{option} val={val} type={type(val)}')
+        get_log().error(f'Entity: {self.name} option:{option} val={val} type={type(val)}')
         setattr(self, option, val)
 
     def validate(self):
@@ -597,6 +602,7 @@ class MyConfigObject():
                     return c
         facts = globals()[self.getClass()](self.name)
         facts.state = "absent"
+        get_log().debug(f'findFact --> {facts}')
         return facts
 
     def getType(self):
@@ -720,8 +726,8 @@ class ConfigIndex(MyConfigObject):
         for action in actions:
             val = action.perform(OptionAction.FACT)
             vdef = action.perform(OptionAction.DEFAULT)
-            get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
             if val and val != vdef:
+                get_log().debug(f"Index {self.name} from Backend {bename} option:{action.option.name} val:{val}")
                 setattr(self, action.option.name, val)
 
     def _stateAction(self=None, action=None, action2perform=None):
@@ -936,6 +942,20 @@ class ConfigBackend(MyConfigObject):
             s = escapeDNFiltValue(normalizeDN(s))
         return { 'bename' : self.name, 'suffix' : s }
 
+    def getReplicaFacts(self, replicaDN, entry):
+        get_log().error(f"getReplicaFacts Backend {self.name} replicaDN={replicaDN} entry={entry}")
+        for option in self.OPTIONS:
+            if isinstance(option, ReplicaOption):
+                val = entry.getSingleValue(option.dsename)
+                vdef = option.vdef
+                get_log().error(f"getReplicaFacts/ReplicaOption Backend {self.name} option:{option.name} val:{val}")
+                if val and val != vdef:
+                    get_log().error(f"Backend {self.name} option:{option.name} val:{val} tye:{type(val)}")
+                    setattr(self, option.name, val)
+        role = self._getReplicaRole(entry = entry)
+        get_log().error(f"Backend {self.name} option:ReplicaRole val:{role} tye:{type(role)}")
+        setattr(self, 'ReplicaRole',  role)
+
     def getFacts(self):
         dse = self.getDSE()
         self.state = 'present'
@@ -946,8 +966,16 @@ class ConfigBackend(MyConfigObject):
             vdef = action.perform(OptionAction.DEFAULT)
             get_log().debug(f"Backend {self.name} option:{action.option.name} val:{val}")
             if val and val != vdef:
+                get_log().error(f"Backend {self.name} option:{action.option.name} val:{val} tye:{type(val)}")
                 setattr(self, action.option.name, val)
 
+        # Get replica
+        replicaDN=Key.from_val(self.getPath(ReplicaOption.DSEDN))
+        get_log().error(f"ConfigBackend.getFacts Backend {self.name} replicaDN={replicaDN} dsekeys=...")
+        if replicaDN in dse.dn2entry:
+            self.getReplicaFacts(replicaDN, dse.dn2entry[replicaDN])
+
+        # Get indexes
         for dn in dse.class2dn['nsindex']:
             m = re.match(f'cn=([^,]*),cn=index,cn={self.name},cn=ldbm database,cn=plugins,cn=config', dn)
             if m:
@@ -956,23 +984,35 @@ class ConfigBackend(MyConfigObject):
                     index = ConfigIndex(m.group(1), parent=self, beentrydn=dn)
                     self.indexes[index.name] = index
                     index.getFacts()
+
+        # Get replica agreements
         if 'nsds5replicationagreement' in dse.class2dn:
-            replicaDN=NormalizedDict.normalize(self.getPath(ReplicaOption.DSEDN))
             for dn in dse.class2dn['nsds5replicationagreement']:
                 entry = dse.dn2entry[dn]
-                if entry.getNDN().endswith(replicaDN):
+                # Check if agmt matchs this replica
+                get_log().error(f"ConfigBackend.getFacts Backend {self.name} Handling agmt {entry}")
+                if entry.getDN().normalized.endswith(replicaDN.normalized):
+                    # Check whether is was created by ansible through dse389_agmts
+                    desc = entry.getSingleValue('description')
+                    get_log().error(f"ConfigBackend.getFacts Backend {self.name} Handling agmt {entry} desc={desc}")
+                    if desc and desc.lower().startswith('ansible-target: '):
+                        ConfigDs389Agmt.getFactsFromEntry(self, entry, desc[16:])
+                        continue
+                    # It is a legacy agreement (seend in backend agmts field in ansible)
                     m = re.match('cn=([^,]*),cn=replica,cn=.*,cn=mapping tree,cn=config', dn)
                     assert m
                     agmt = ConfigAgmt(m.group(1), parent=self, beentrydn=dn)
                     self.agmts[agmt.name] = agmt
                     agmt.getFacts()
 
-
-    def _getReplicaRole(self):
-        dse = self.getDSE()
-        if not dse:
-            return None
-        rentry = dse.getEntry(self.getPath(ReplicaOption.DSEDN))
+    def _getReplicaRole(self, entry=None):
+        if entry:
+            rentry = entry
+        else:
+            dse = self.getDSE()
+            if not dse:
+                return None
+            rentry = dse.getEntry(self.getPath(ReplicaOption.DSEDN))
         if not rentry:
             return None
         flags = rentry.getSingleValue('nsDS5Flags')
@@ -1169,6 +1209,47 @@ class ConfigBackend(MyConfigObject):
         return None
 
 
+class ConfigDs389Agmt(MyConfigObject):
+    OPTIONS = ConfigBackend.OPTIONS + ConfigAgmt.OPTIONS
+
+    def getFacts(self):
+        pass
+
+    @staticmethod
+    def getFactsFromEntry(backend, entry, target):
+        hlog = f"ConfigDs389Agmt.getFactsFromEntry: Backend {backend.name}"
+        get_log().error(f"{hlog} target={target} entry={target}")
+        # Handle the paramaters that are stored in backend.
+        seen = {}
+        for option in backend.OPTIONS:
+            if isinstance(option, AgmtTgtOption) or option in ConfigBackend.REPLICA_MANAGER_OPTIONS:
+                dsename = f'nsDS5{option.name}'
+                val = entry.getSingleValue(dsename)
+                vdef = option.vdef
+                seen[dsename.lower()] = True
+                if val and val != vdef:
+                    get_log().error(f"{hlog} Agmt {target} backend option:{option.name} val:{val}")
+                    setattr(backend, option.name, val)
+        # If dse389agmt does not already exists, lets create it:
+        configroot = backend.parent().parent()
+        agmts = getattr(configroot, AGMTS, None)
+        get_log().error(f"ConfigDs389Agmt.getFactsFromEntry: seen={seen}")
+        if target in agmts:
+            return
+        agmt = ConfigDs389Agmt(target, parent=configroot)
+        agmts[target] = agmt
+        get_log().error(f"{hlog} Agmt {target} option:target val:{target} tye:{type(target)}")
+        get_log().error(f"ConfigDs389Agmt.getFactsFromEntry: configroot={configroot}")
+        setattr(agmt,'target', target)
+        for option in ConfigAgmt.OPTIONS:
+            if option.dsename and option.dsename.lower() not in seen:
+                val = entry.getSingleValue(option.dsename)
+                vdef = option.vdef
+                if val and val != vdef:
+                    get_log().error("{hlog} Agmt {target} agmt option:{option.name} val:{val}")
+                    setattr(agmt, option.name, val)
+
+
 class ConfigInstance(MyConfigObject):
     LDBM_CONFIG_DB = 'cn=config,cn=ldbm database,cn=plugins,cn=config'
     PARAMS = {
@@ -1307,7 +1388,9 @@ class ConfigInstance(MyConfigObject):
             ignore_dns.append(f'.*cn={escapedSuffix}, *cn=mapping tree,cn=config')
 
         # And build a newresult without those dns
+        get_log().debug(f'filterDiff: result.result = {result.result}')
         for dn in result.result:
+            get_log().debug(f'filterDiff: dn={dn} ignore_dns={ignore_dns}')
             if DiffResult.match(dn, ignore_dns, re.IGNORECASE) is False:
                 newResult.cloneDN(result.result, dn)
 
@@ -1391,6 +1474,7 @@ class ConfigInstance(MyConfigObject):
             vdef = action.perform(OptionAction.DEFAULT)
             get_log().debug(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val}")
             if val and (val != vdef or action.option.name == 'state'):
+                get_log().error(f"ConfigInstance.getFacts {self.name} option:{action.option.name} val:{val} type:{type(val)}")
                 setattr(self, action.option.name, val)
 
         if 'nsbackendinstance' in dse.class2dn:
@@ -1685,7 +1769,7 @@ class ConfigRoot(MyConfigObject):
         SpecialOption('state', 2, "If 'state' is 'absent' then all instances are removed", vdef="present", choice= ("present", "updated", "absent")),
 
     )
-    CHILDREN = { INSTANCES: ConfigInstance, }
+    CHILDREN = { INSTANCES: ConfigInstance, AGMTS: ConfigDs389Agmt }
 
     @staticmethod
     def from_path(path):

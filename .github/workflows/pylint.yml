@@ -4,6 +4,8 @@ on: [push, pull_request]
 jobs:
   python_lint:
     runs-on: ubuntu-latest
+    container:
+      image: quay.io/389ds/ci-images:test
 
     steps:
     - name: Checkout
@@ -12,8 +14,14 @@ jobs:
     - name: Add GITHUB_WORKSPACE as a safe directory
       run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+    - name: Install python requirements
+      run: pip install -r requirements.txt
+
+    - name: Install 389ds
+      run: dnf install -y 389-ds-base python3-lib389
+
     - name: Build ds389_ansible collection.
-      uses: ./.github/actions/build
+      run: make build
 
     - name: Run lint (python)
       run: make github_pylint

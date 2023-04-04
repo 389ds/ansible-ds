@@ -4,6 +4,10 @@
 # C0413 (wrong-import-position) because sometime the sys.path must be set before the import
 disable=R0022,E0401,C0413
 
+[MAIN]
+recursive=yes
+# Lets avoid some no-member false positive about ldap constants
+ignored-modules=ldap
 
 [FORMAT]
 max-attributes=11
@@ -11,6 +15,7 @@ max-line-length=130
 ignore-long-lines=^\s.*Option.*$
 method-naming-style=camelCase
 max-module-lines=2000
+ignore-patterns = ^\\.#,^.*/doc_fragments/.*#
 
 [DESIGN]
 max-returns=8
@@ -42,3 +47,5 @@ method-rgx=[a-z_][a-z0-9_]{1,40}$
 function-rgx=[a-z_][a-z0-9_]{1,40}$
 module-rgx=[a-z_][a-z0-9_-]{2,40}$
 
+# pylint --generate-rcfile
+# pylint --help

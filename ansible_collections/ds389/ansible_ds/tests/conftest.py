@@ -182,17 +182,21 @@ class PlaybookTestEnv:
                 file.write('/bin/rm -rf ansible_collections\n')
                 file.write(f'ansible-galaxy collection install --force -p {self.pbdir} {tarballpath}\n')
         # Check if docker is available
-        result = subprocess.run(['docker', 'info'], capture_output=True, encoding='utf8', check=False)
-        if result.returncode == 0 and 'Server:' in result.stdout:
-            self.docker = True
+        try:
+            result = subprocess.run(['docker', 'info'], capture_output=True, encoding='utf8', check=False)
+            if result.returncode == 0 and 'Server:' in result.stdout:
+                self.docker = True
+        except FileNotFoundError:
+            pass
 
     def run(self, testitem, playbook):
         """Run a playbook
         """
 
         if self.skip:
-            pytest.skip('Failed to create playbook test environment (conftest.py)')
-            return
+            assert not 'Aborting test Failed to create playbook test environment (conftest.py)'
+            # pytest.skip('Failed to create playbook test environment (conftest.py)')
+            # return
         cmd = [ IniFileConfig.ANSIBLE_PLAYBOOK, ]
         if self.debugging:
             cmd.append( '-vvvvv' )
@@ -327,9 +331,9 @@ class AnsibleTest:
         # So lets use a workaround to avoid R0201 lint warning
         self.get_log("foo")
         for item in obj:
-            if item['name'] == name:
+            if item['name'].lower() == name.lower():
                 return item
-        raise KeyError(f'No children entity named {name} in {obj.name}.')
+        raise KeyError(f'No children entity named {name} in {obj}.')
 
     def list_instances(self):
         """return the list of ds389 instances (extracted from runModule result)."""

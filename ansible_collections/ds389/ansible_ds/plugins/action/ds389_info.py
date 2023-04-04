@@ -9,10 +9,6 @@ from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
 
-from copy import deepcopy
-import os
-import re
-import logging
 from ansible.plugins.action import ActionBase
 from ansible.errors import AnsibleError
 
