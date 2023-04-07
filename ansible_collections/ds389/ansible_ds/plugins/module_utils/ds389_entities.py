@@ -291,6 +291,7 @@ class DSEOption(Option):
             name = dsename.replace("-", "_")
         Option.__init__(self, name, desc, dseName=dsename, dseDN=dsedn, vdef=vdef, **kwargs)
 
+
 class ConfigOption(DSEOption):
     """Class handling the Option associated with ds389 parameters that are in ds389_create template file."""
 
@@ -301,16 +302,19 @@ class ConfigOption(DSEOption):
         if not self.configtag:
             self.configtag = "slapd"
 
+
 class SpecialOption(Option):
     """Class handling special cases like ansible specific parameterss ( like 'state') or the ds389_prefix."""
 
     def __init__(self, name, prio, desc, vdef=None, **kwargs):
         Option.__init__(self, name, desc, prio=prio, actionCbName=f'_{name}Action', vdef=vdef, **kwargs)
 
+
 class AgmtTgtOption(Option):
     """Class handling the Backends Options used to build replication agreements."""
     def __init__(self, name, desc, **kwargs):
         Option.__init__(self, name, desc, prio=8, **kwargs)
+
 
 class ReplicaOption(Option):
     """Class handling the Backends Options used to build replicas."""
@@ -321,6 +325,7 @@ class ReplicaOption(Option):
         dsename = f'nsDS5{name}'
         Option.__init__(self, name, desc, dseName=dsename, **kwargs)
 
+
 class ChangelogOption(Option):
     """Class handling replica parameters related to the changelog."""
     DSEDN = 'cn=changelog,cn={bename},cn=ldbm database,cn=plugins,cn=config'
@@ -329,6 +334,7 @@ class ChangelogOption(Option):
         dsename = f'nsslapd{name}'
         Option.__init__(self, name, desc, dseName=dsename, dseDN=ChangelogOption.DSEDN, **kwargs)
 
+
 class AgmtOption(Option):
     """Class handling explicit replication agreement parameters."""
     AGMTDN = "{agmtDN}"
@@ -336,6 +342,7 @@ class AgmtOption(Option):
     def __init__(self, name, desc, **kwargs):
         dsename = f'nsDS5{name}'
         Option.__init__(self, name, desc, dseName=dsename, dseDN=AgmtOption.AGMTDN, **kwargs)
+
 
 class OptionAction:
     """This utility class represents an action to perform on an Option."""
@@ -377,6 +384,7 @@ class OptionAction:
 
     def __repr__(self):
         return f'OptionAction(option={self.option.name}, prio={self.option.prio}, dsename={self.option.dsename}, target={self.target.name}, vfrom={self.vfrom}, vto={self.vto})'
+
 
 # class representong the enties like instance, backends, indexes, ...
 class MyConfigObject():
@@ -810,6 +818,7 @@ class ConfigIndex(MyConfigObject):
                 idx = Index(inst.getDirSrv(), dn=dn)
                 idx.delete()
         return None
+
 
 class ConfigAgmt(MyConfigObject):
     OPTIONS = (
@@ -1254,6 +1263,8 @@ class ConfigBackend(MyConfigObject):
                 'nsDS5ReplicaType': str(tf_to[0]),
                 **properties,
             }
+            if new_role in ( 'consumer', 'hub' ):
+                properties['nsDS5ReplicaId'] = '65535'
             if not onlycheck:
                 get_log().debug(f'replica_create_or_promote: replicas.create(properties={properties})')
                 replicas.create(properties=properties)

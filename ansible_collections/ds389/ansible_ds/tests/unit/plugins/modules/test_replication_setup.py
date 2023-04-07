@@ -210,6 +210,8 @@ def test_ds389_create_with_replication_is_idempotent(ansibletest):
         # Step 9: Test replication
         repl = ReplicationManager(DEFAULT_SUFFIX)
         repl.test_replication_topology(instances)
+    except ( AssertionError, ldap.LDAPError ):
+        ansibletest.save_artefacts()
     finally:
         # Step 10: Perform cleanup
         cleanup(instances)

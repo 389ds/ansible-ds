@@ -56,8 +56,8 @@ all:
                   ReplicaRole: consumer
                   ReplicaPort: 636
                   ReplicaTransportInfo: SSL
-                  ReplicationManagerDN: cn=replication manager, cn=config
-                  ReplicationManagerPassword: "{{ vault_ds389_replmanpw }}"
+                  ReplicaBindDN: cn=replication manager, cn=config
+                  ReplicaCredentials: "{{ vault_ds389_replmanpw }}"
           hosts:
             ds389vm3:
             ds389vm4:

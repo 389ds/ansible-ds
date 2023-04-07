@@ -16,8 +16,10 @@ from pathlib import Path
 from shutil import copytree, rmtree
 from pwd import getpwuid
 from tempfile import mkdtemp
+import glob
 import json
 import logging
+import shutil
 import subprocess
 import pytest
 from lib389.utils import get_instance_list
@@ -280,8 +282,9 @@ class AnsibleTest:
         self.module = module
         if not path in sys.path:
             sys.path.append(path)
+        artefact_root = f"/workspace/assets/{self.module}"
+        shutil.rmtree(artefact_root, ignore_errors=True)
         return self.log
-
 
     def _log_stdio(self, name, result):
         """Log strings from subprocess.run result associated with stdio members."""
@@ -289,7 +292,6 @@ class AnsibleTest:
         if text:
             for line in text.split('\n'):
                 self.log.info('  %s: %s', name.upper(), line)
-
 
     def _log_run_result(self, result):
         """Displays subprocess.run result in a pretty way."""
@@ -299,13 +301,11 @@ class AnsibleTest:
         self._log_stdio('stdout', result)
         self._log_stdio('stderr', result)
 
-
     def run(self, cmd):
         """Run a sub command."""
         result = subprocess.run(cmd, capture_output=True, encoding='utf-8' ) # pylint: disable=subprocess-run-check
         self._log_run_result(result)
         result.check_returncode()
-
 
     def run_test_module(self, stdin_text):
         """Run the ansible module associated with the test module."""
@@ -318,10 +318,27 @@ class AnsibleTest:
         result = subprocess.run([cmd], encoding='utf8', text=True, input=stdin_text, capture_output=True, check=False) # pylint: disable=subprocess-run-check
         self._log_run_result(result)
         assert result.returncode in (0, 1)
-        self.result = json.loads(result.stdout)
-        self.log.info('Module %s result is %s', cmd, self.result)
-        return self.result
+        try:
+            self.result = json.loads(result.stdout)
+            self.log.info('Module %s result is %s', cmd, self.result)
+            return self.result
+        except json.JSONDecodeError:
+            self.log.error('Module %s: failed to decode module output: {result}')
+            raise AssertionError(f'Module %s returned valid output') from None
 
+    def save_artefacts(self):
+        """Save error logs and dse.ldif in /workspace/assets."""
+        if not os.path.isdir("/workspace"):
+            return
+        artefact_root = f"/workspace/assets/{self.module}"
+        os.makedirs(artefact_root, mode=0o750, exist_ok=True)
+        prefix = ""
+        if "PREFIX" in _the_env:
+            prefix = _the_env["PREFIX"]
+            pattern = f'{prefix}/etc/dirsrv/slapd-*'
+            for inst in [ inst.rsplit('/',1)[1] for inst in glob.glob(i) ]:
+                shutil.copytree(f'{prefix}/etc/dirsrv/var/log/dirsrv/{inst}', f'{artefact_root}/{inst}')
+            shutil.copyfile(f'{prefix}/etc/dirsrv/{inst}/dse.ldif', f'{artefact_root}/{inst}/dse.ldif')
 
     # pylint: disable-next=R0201
     def lookup(self, obj, name):
