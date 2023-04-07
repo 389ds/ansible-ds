@@ -291,6 +291,7 @@ class _PH:
                 _PH.log.debug("Found target backend %s for agmt %s", befn, agmt)
                 found = True
                 ragmt = { **agmt, **bedata }
+                ragmt['fulltargetname'] = befn
                 # Remove children list of dicts
                 ragmt.pop('indexes', None)
                 ragmt.pop('agmts', None)

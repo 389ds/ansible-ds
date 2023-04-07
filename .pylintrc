@@ -20,6 +20,13 @@ ignore-patterns = ^\\.#,^.*/doc_fragments/.*#
 [DESIGN]
 max-returns=8
 
+[MISCELLANEOUS]
+
+notes=FIXME,
+      XXX,
+      TODO,
+      TBC,
+      TBD
 
 [BASIC]
 
