@@ -19,6 +19,7 @@ import sys
 
 # Set PYTHONPATH to be able to find lib389 in PREFIX install
 # (computed within conftest seesion initialization hook)
+from ldap import LDAPError
 from lib389 import DirSrv
 from lib389.properties import SER_SERVERID_PROP
 from lib389.replica import ReplicationManager
@@ -210,7 +211,7 @@ def test_ds389_create_with_replication_is_idempotent(ansibletest):
         # Step 9: Test replication
         repl = ReplicationManager(DEFAULT_SUFFIX)
         repl.test_replication_topology(instances)
-    except ( AssertionError, ldap.LDAPError ):
+    except ( AssertionError, LDAPError ):
         ansibletest.save_artefacts()
     finally:
         # Step 10: Perform cleanup
