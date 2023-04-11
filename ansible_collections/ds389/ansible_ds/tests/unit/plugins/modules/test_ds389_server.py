@@ -21,6 +21,7 @@ import sys
 # (computed within conftest seesion initialization hook)
 from lib389 import DirSrv
 from lib389.properties import SER_SERVERID_PROP
+from lib389.topologies import topology_m2 as topo_s2
 
 DIRECTORY_MANAGER_PASSWORD = "secret12"
 
@@ -68,7 +69,7 @@ config_2i={
 }
 
 def test_ds389_create_is_idempotent(ansibletest):
-    """Test  ds389_info module #1.
+    """Setup two instances twice using ds389_server module.
         Setup: None
         Step 1: Ensure that i1 and i2 instances does not exist
         Step 2: Run ds389_server module
@@ -98,7 +99,6 @@ def test_ds389_create_is_idempotent(ansibletest):
     # Step 2: Run ds389_server module
     args = { "ds389" : { **config_2i, **common_args }  }
     result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
-    log.info(f'result={result}')
     # Step 3: Verify that i1 ande i2 instances exists.
     for srv in instances:
         assert srv.exists()
@@ -114,3 +114,24 @@ def test_ds389_create_is_idempotent(ansibletest):
     for srv in instances:
         if srv.exists():
             srv.delete()
+
+def test_ds289_remove_all(ansibletest, topo_s2):
+    """Remove all instances using ds389_server module.
+        Setup: Two suppliers
+        Step 1: Ensure that instances exist
+        Step 2: Run ds389_server module
+        Step 3: Verify that instances do not exist.
+   """
+
+    log = ansibletest.get_log(__name__)
+    # Step 1: Ensure that instances exist
+    for inst in topo_s2:
+        assert inst.exists()
+    # Step 2: Run ds389_server module
+    args = { "ds389" : { "state": "absent", **common_args }  }
+    result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
+    # Step 3: Verify that instances do not exist.
+    for inst in topo_s2:
+        assert not inst.exists()
+    del log
+    del result

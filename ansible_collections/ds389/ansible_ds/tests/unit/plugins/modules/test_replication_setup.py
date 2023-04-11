@@ -13,6 +13,8 @@
 # pylint: disable=redefined-outer-name
 # pylint: disable=unused-import
 # pylint: disable=unused-argument
+# Disable similarities test
+# pylint: disable=R0801
 
 import os
 import sys
@@ -34,12 +36,12 @@ REPLICATION_MANAGER_PASSWORD = "secret34"
 SUFFIX = "dc=example,dc=com"
 
 if "DEBUGGING" in os.environ:
-    verbosity = 5
+    VERBOSITY = 5
 else:
-    verbosity = 0
+    VERBOSITY = 0
 
 MODULE_ARGS = {
-    "ANSIBLE_MODULE_ARGS": 
+    "ANSIBLE_MODULE_ARGS":
     {
         "ds389": {
             "ds389_agmts": [
@@ -114,7 +116,7 @@ MODULE_ARGS = {
                 }
             ],
             "ansible_check_mode": False,
-            "ansible_verbosity": verbosity
+            "ansible_verbosity": VERBOSITY
         }
     }
 }
@@ -134,7 +136,7 @@ def encode(val):
 
 def init_suffix(inst):
     """Create suffix entry and replication manager group."""
-    # replication manager group in needed because 
+    # replication manager group in needed because
     # test_replication_topology changes it to test replication
     entries = {
         "dc=example,dc=com" : [
@@ -211,8 +213,9 @@ def test_ds389_create_with_replication_is_idempotent(ansibletest):
         # Step 9: Test replication
         repl = ReplicationManager(DEFAULT_SUFFIX)
         repl.test_replication_topology(instances)
-    except ( AssertionError, LDAPError ):
+    except ( AssertionError, LDAPError ) as exc:
         ansibletest.save_artefacts()
+        raise exc
     finally:
         # Step 10: Perform cleanup
         cleanup(instances)

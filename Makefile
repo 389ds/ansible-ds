@@ -35,14 +35,14 @@ install:
 unit_test: clean $B install
 	# ansible-test seems to do its own test collection and ignore yml test so use directly pytest
 	#cd ansible_collections/$N/$M ; ansible-test units -vvvvv --python ${python_version} --local
-	pytest -vvvvv ansible_collections/$N/$M/tests 2>&1 | tee pytest.out
+	pytest -rap -vvvvv ansible_collections/$N/$M/tests 2>&1 | tee pytest.out
 
 prereq:
 	pip3 install -r requirements.txt
 
 lint:
     # Lets exclude the plugins code until we have done a code cleanup
-	pylint .
+	pylint -r y .
 
 github_pylint: lint
 
@@ -50,7 +50,7 @@ github_anlint: install
 	ANSIBLE_COLLECTIONS_PATH=$(HOME)/.ansible/collections ansible-lint
 
 github_utest:
-	pytest-3 -vvvvv ansible_collections/$N/$M/tests
+	pytest-3 -rap -vvvvv ansible_collections/$N/$M/tests
 
 
 gensrc: $(SRCBASE)/plugins/doc_fragments/ds389_server_doc.py $(SRCBASE)/plugins/module_utils/ds389_entities_options.py

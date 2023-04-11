@@ -155,6 +155,7 @@ import sys
 import os
 import io
 import itertools
+import traceback
 import json
 import logging
 
@@ -223,11 +224,11 @@ def manage_instances(content, result, checkmode):
     #result['cooked_message'] = safe_dup(wanted_state.tolist())
     get_log().debug(f"wanted_state={wanted_state}")
     # Determine current state
-    host = ConfigRoot()
-    host.getFacts()
+    host_facts = ConfigRoot()
+    host_facts.getFacts()
     # Then change it
     summary = []
-    wanted_state.update(host, summary, checkmode)
+    wanted_state.update(host_facts, summary, checkmode)
     result['message'] =  summary
     # Summary is a list of string describing the changes
     # So config changed if the list is not empty
@@ -348,11 +349,12 @@ def run_module():
             raise AnsibleError("Operation failed: Missing 'ds389' or 'ds389info' parameter.")
     #pylint: disable=broad-exception-caught
     except Exception as exc:
-        get_log().error(f'ds389_module failed: {str(result)}')
+        excstr = str(''.join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+        get_log().error(f'ds389_module failed: {excstr}\nFailed result: {str(result)}')
         logbuff = str(_logbuff.getvalue())
         if logbuff:
             result['module_debug'] = logbuff
-        result['exception'] = exc
+        result['exception'] = excstr
         module.fail_json('ds389_module failed', **result)
 
     #prefix in the event of a successful module execution, you will want to
