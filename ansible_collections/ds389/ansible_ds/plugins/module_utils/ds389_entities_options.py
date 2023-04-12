@@ -30,15 +30,293 @@ CONTENT_OPTIONS = {
             'absent',
         ),
     },
-    'ds389_agmts': {
-        'description': 'Ansible inventory ds389 replication agreements.',
-        'required': False,
-        'type': 'list',
-    },
     'ds389_prefix': {
         'description': '389 Directory Service non standard installation path.',
         'required': False,
         'type': 'str',
+    },
+    'ds389_agmts': {
+        'description': 'List of ds389_agmts options.',
+        'required': False,
+        'type': 'list',
+        'elements': 'dict',
+        'options': {
+            'name': {
+                'description': """ds389_agmt's name.""",
+                'type': 'str',
+                'required': True,
+            },
+            'state': {
+                'description': 'Indicate whether the replication agreement is added(present), modified(updated), or removed(absent).',
+                'required': False,
+                'type': 'str',
+            },
+            'changelogencryptionalgorithm': {
+                'description': 'Encryption algorithm used to encrypt the changelog..',
+                'required': False,
+                'type': 'str',
+            },
+            'changelogmaxage': {
+                'description': 'Changelog record lifetime.',
+                'required': False,
+                'type': 'str',
+            },
+            'changelogmaxentries': {
+                'description': 'Max number of changelog records.',
+                'required': False,
+                'type': 'str',
+            },
+            'changelogsymetrickey': {
+                'description': 'Encryption key (if changelog is encrypted).',
+                'required': False,
+                'type': 'str',
+            },
+            'changelogtriminterval': {
+                'description': 'Time (in seconds) between two runs of the changlog trimming. .',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabackoffmax': {
+                'description': 'Maximum delay before retrying to send updates after a recoverable failure.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabackoffmin': {
+                'description': 'Minimum time before retrying to send updates after a recoverable failure.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabinddn': {
+                'description': 'The DN used to connect to the target instance.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabinddngroup': {
+                'description': 'DN of the group containing users allowed to replay updates on this replica.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabinddngroupcheckinterval': {
+                'description': 'Interval between detection of the bind dn group changes.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabindmethod': {
+                'description': 'The bind Method.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabootstrapbinddn': {
+                'description': 'The fallback bind dn used after getting authentication error.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabootstrapbindmethod': {
+                'description': 'The fallback bind method.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabootstrapcredentials': {
+                'description': 'The credential associated with the fallback bind.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabootstraptransportinfo': {
+                'description': 'The encryption method used on the connection after an authentication error..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicabusywaittime': {
+                'description': 'The amount of time in seconds a supplier should wait after a consumer sends back a busy response before making another attempt to acquire access.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicacredentials': {
+                'description': 'The credentials associated with the bind.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaenabled': {
+                'description': 'A flags telling wheter the replication agreement is enabled or not..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaflowcontrolpause': {
+                'description': 'the time in milliseconds to pause after reaching the number of entries and updates set in the ReplicaFlowControlWindow parameter is reached..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaflowcontrolwindow': {
+                'description': 'The maximum number of entries and updates sent by a supplier, which are not acknowledged by the consumer. After reaching the limit, the supplier pauses the replication agreement for the time set in the nsDS5ReplicaFlowControlPause parameter.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicahost': {
+                'description': 'The target instance hostname.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaid': {
+                'description': 'The unique ID for suppliers in a given replication environment (between 1 and 65534)..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaignoremissingchange': {
+                'description': 'Tells how the replication behaves when a csn is missing..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaport': {
+                'description': 'Target instance port.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaprecisetombstonepurging': {
+                'description': '???.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaprotocoltimeout': {
+                'description': 'Timeout used when stopping replication to abort ongoing operations..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicapurgedelay': {
+                'description': 'The maximum age of deleted entries (tombstone entries) and entry state information..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicareferral': {
+                'description': 'The user-defined referrals (returned when a write operation is attempted on a hub or a consumer..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicareleasetimeout': {
+                'description': 'The timeout period (in seconds) after which a master will release a replica..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicarole': {
+                'description': 'The replica role..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicasessionpausetime': {
+                'description': 'The amount of time in seconds a supplier should wait between update sessions.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicastripattrs': {
+                'description': 'Fractionnal replication attributes that does get replicated if the operation modifier list contains only these agreement.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicatimeout': {
+                'description': 'The number of seconds outbound LDAP operations waits for a response from the remote replica before timing out and failing.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicatombstonepurgeinterval': {
+                'description': 'The time interval in seconds between purge operation cycles..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicatransportinfo': {
+                'description': 'The encryption method used on the connection.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicaupdateschedule': {
+                'description': 'The replication schedule..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicawaitforasyncresults': {
+                'description': 'The time in milliseconds for which a supplier waits if the consumer is not ready before resending data..',
+                'required': False,
+                'type': 'str',
+            },
+            'replicatedattributelist': {
+                'description': 'List of replication attribute ithat are not replicated in fractionnal replication.',
+                'required': False,
+                'type': 'str',
+            },
+            'replicatedattributelisttotal': {
+                'description': 'List of attributes that are not replicated during a total update.',
+                'required': False,
+                'type': 'str',
+            },
+            'chain_bind_dn': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'chain_bind_pw': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'chain_urls': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'db_deadlock': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'directory': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'dn_cache_size': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'entry_cache_number': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'entry_cache_size': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'fulltargetname': {
+                'description': 'The resolved replica agreements target host.instance.backend..',
+                'required': False,
+                'type': 'str',
+            },
+            'readonly': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'require_index': {
+                'description': 'Desc.',
+                'required': False,
+                'type': 'str',
+            },
+            'sample_entries': {
+                'description': 'Tells whether sample entries are created on this backend when the instance is created.',
+                'required': False,
+                'type': 'str',
+            },
+            'suffix': {
+                'description': 'DN subtree root of entries managed by this backend..',
+                'required': False,
+                'type': 'str',
+            },
+            'target': {
+                'description': 'The raw replica agreements target (pattern speficing the backend)..',
+                'required': False,
+                'type': 'str',
+            },
+        },
     },
     'ds389_server_instances': {
         'description': 'List of ds389_server_instances options.',
@@ -171,11 +449,11 @@ CONTENT_OPTIONS = {
             'nsslapd_exclude_from_export': {
                 'description': 'list of attributes that are not exported.',
                 'required': False,
-                'default': 'entrydn entryid dncomp parentid numSubordinates             tombstonenumsubordinates entryusn',
+                'default': 'entrydn entryid dncomp parentid numSubordinates tombstonenumsubordinates entryusn',
                 'type': 'str',
             },
             'nsslapd_idlistscanlimit': {
-                'description': 'The maximum number of entries a given index key may refer             before the index is handled as unindexed..',
+                'description': 'The maximum number of entries a given index key may refer before the index is handled as unindexed..',
                 'required': False,
                 'default': '4000',
                 'type': 'int',
@@ -187,7 +465,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'nsslapd_lookthroughlimit': {
-                'description': 'The maximum number of entries that are looked in search             operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
+                'description': 'The maximum number of entries that are looked in search operation before returning LDAP_ADMINLIMIT_EXCEEDED.',
                 'required': False,
                 'default': '5000',
                 'type': 'int',
@@ -217,7 +495,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'nsslapd_search_bypass_filter_test': {
-                'description': """Allowed values are: 'on', 'off' or 'verify'.             If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when             it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates             the filter against the search candidate entries.""",
+                'description': """Allowed values are: 'on', 'off' or 'verify'. If you enable the nsslapd-search-bypass-filter-test parameter, Directory Server bypasses filter checks when it builds candidate lists during a search. If you set the parameter to verify, Directory Server evaluates the filter against the search candidate entries.""",
                 'required': False,
                 'default': 'on',
                 'type': 'str',
@@ -248,7 +526,7 @@ CONTENT_OPTIONS = {
                 'type': 'str',
             },
             'rootpw': {
-                'description': """Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). You can either set this parameter to a plain text password ds389_create hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility.  The password must be at least 8 characters long.  Note that setting a plain text password can be a security risk if unprivileged users can read this INF file.""",
+                'description': """Sets the password of the "cn=Directory Manager" account ("root_dn" parameter). You can either set this parameter to a plain text password ds389_create hashes during the installation or to a "{algorithm}hash" string generated by the pwdhash utility. The password must be at least 8 characters long. Note that setting a plain text password can be a security risk if unprivileged users can read this INF file.""",
                 'required': False,
                 'type': 'str',
             },
@@ -273,7 +551,7 @@ CONTENT_OPTIONS = {
                 'type': 'int',
             },
             'self_sign_cert': {
-                'description': """Sets whether the setup creates a self-signed certificate and             enables TLS encryption during the installation. The certificate is not suitable for production, but it             enables administrators to use TLS right after the installation. You can replace the self-signed certificate             with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by             importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.""",
+                'description': """Sets whether the setup creates a self-signed certificate and enables TLS encryption during the installation. The certificate is not suitable for production, but it enables administrators to use TLS right after the installation. You can replace the self-signed certificate with a certificate issued by a Certificate Authority. If set to False, you can enable TLS later by importing a CA/Certificate and enabling 'dsconf <instance_name> config replace nsslapd-security=on.""",
                 'required': False,
                 'type': 'str',
             },
@@ -283,7 +561,7 @@ CONTENT_OPTIONS = {
                 'type': 'str',
             },
             'selinux': {
-                'description': """Enables SELinux detection and integration during the installation of this             instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to             "False" in a development environment or if using a non root installation.""",
+                'description': """Enables SELinux detection and integration during the installation of this instance. If set to "True", ds389_create auto-detects whether SELinux is enabled. Set this parameter only to "False" in a development environment or if using a non root installation.""",
                 'required': False,
                 'type': 'bool',
             },
@@ -294,7 +572,7 @@ CONTENT_OPTIONS = {
                 'type': 'bool',
             },
             'strict_host_checking': {
-                'description': """Sets whether the server verifies the forward and reverse record             set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load             balancer, set this parameter to "false". Container installs imply "false".""",
+                'description': """Sets whether the server verifies the forward and reverse record set in the "full_machine_name" parameter. When installing this instance with GSSAPI authentication behind a load balancer, set this parameter to "false". Container installs imply "false".""",
                 'required': False,
                 'type': 'bool',
             },
@@ -304,7 +582,7 @@ CONTENT_OPTIONS = {
                 'type': 'str',
             },
             'systemd': {
-                'description': """Enables systemd platform features. If set to "True", ds389_create             auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.""",
+                'description': """Enables systemd platform features. If set to "True", ds389_create auto-detects whether systemd is installed. Only set this parameter in a development environment or if using non root installation.""",
                 'required': False,
                 'type': 'bool',
             },
@@ -400,10 +678,10 @@ CONTENT_OPTIONS = {
                         'required': False,
                         'type': 'str',
                         'choices': (
-                            'SIMPLE',
-                            'SSLCLIENTAUTH',
-                            'SASL/GSSAPI',
-                            'SASL/DIGEST-MD5',
+                            'simple',
+                            'sslclientauth',
+                            'sasl/gssapi',
+                            'sasl/digest-md5',
                         ),
                     },
                     'replicabootstrapbinddn': {
@@ -416,10 +694,10 @@ CONTENT_OPTIONS = {
                         'required': False,
                         'type': 'str',
                         'choices': (
-                            'SIMPLE',
-                            'SSLCLIENTAUTH',
-                            'SASL/GSSAPI',
-                            'SASL/DIGEST-MD5',
+                            'simple',
+                            'sslclientauth',
+                            'sasl/gssapi',
+                            'sasl/digest-md5',
                         ),
                     },
                     'replicabootstrapcredentials': {
@@ -432,9 +710,9 @@ CONTENT_OPTIONS = {
                         'required': False,
                         'type': 'str',
                         'choices': (
-                            'LDAP',
-                            'TLS',
-                            'SSL',
+                            'ldap',
+                            'tls',
+                            'ssl',
                         ),
                     },
                     'replicacredentials': {
@@ -503,9 +781,9 @@ CONTENT_OPTIONS = {
                         'required': False,
                         'type': 'str',
                         'choices': (
-                            'LDAP',
-                            'TLS',
-                            'SSL',
+                            'ldap',
+                            'tls',
+                            'ssl',
                         ),
                     },
                     'replicaupdateschedule': {
@@ -606,10 +884,10 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'type': 'str',
                                 'choices': (
-                                    'SIMPLE',
-                                    'SSLCLIENTAUTH',
-                                    'SASL/GSSAPI',
-                                    'SASL/DIGEST-MD5',
+                                    'simple',
+                                    'sslclientauth',
+                                    'sasl/gssapi',
+                                    'sasl/digest-md5',
                                 ),
                             },
                             'replicabootstrapbinddn': {
@@ -622,10 +900,10 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'type': 'str',
                                 'choices': (
-                                    'SIMPLE',
-                                    'SSLCLIENTAUTH',
-                                    'SASL/GSSAPI',
-                                    'SASL/DIGEST-MD5',
+                                    'simple',
+                                    'sslclientauth',
+                                    'sasl/gssapi',
+                                    'sasl/digest-md5',
                                 ),
                             },
                             'replicabootstrapcredentials': {
@@ -638,9 +916,9 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'type': 'str',
                                 'choices': (
-                                    'LDAP',
-                                    'TLS',
-                                    'SSL',
+                                    'ldap',
+                                    'tls',
+                                    'ssl',
                                 ),
                             },
                             'replicabusywaittime': {
@@ -649,7 +927,7 @@ CONTENT_OPTIONS = {
                                 'type': 'int',
                             },
                             'replicacredentials': {
-                                'description': 'The crendential associated with the bind.',
+                                'description': 'The credentials associated with the bind.',
                                 'required': False,
                                 'type': 'str',
                             },
@@ -714,9 +992,9 @@ CONTENT_OPTIONS = {
                                 'required': False,
                                 'type': 'str',
                                 'choices': (
-                                    'LDAP',
-                                    'TLS',
-                                    'SSL',
+                                    'ldap',
+                                    'tls',
+                                    'ssl',
                                 ),
                             },
                             'replicaupdateschedule': {

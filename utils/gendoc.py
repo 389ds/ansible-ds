@@ -207,8 +207,6 @@ class Doc(AbstractAnsibleDsParser):
             for option in sorted(entity.OPTIONS):
                 action_option(option, tab)
         for key in sorted(entity.CHILDREN.keys()):
-            if key == 'ds389_agmts':
-                continue
             nclass = entity.CHILDREN[key]
             if action_entity:
                 action_entity(key, nclass, tab)

@@ -14,12 +14,19 @@ max-attributes=11
 max-line-length=130
 ignore-long-lines=^\s.*Option.*$
 method-naming-style=camelCase
-max-module-lines=2000
+max-module-lines=3000
 ignore-patterns = ^\\.#,^.*/doc_fragments/.*#
 
 [DESIGN]
 max-returns=8
 
+[MISCELLANEOUS]
+
+notes=FIXME,
+      XXX,
+      TODO,
+      TBC,
+      TBD
 
 [BASIC]
 

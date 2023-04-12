@@ -47,6 +47,7 @@ author:
 
 requirements:
     - python3-lib389 patch from https://github.com/389ds/389-ds-base/pull/5253
+
     - python >= 3.9
     - python3-lib389 >= 2.2
     - 389-ds-base >= 2.2
@@ -153,6 +154,7 @@ message:
 import sys
 import os
 import io
+import itertools
 import json
 import logging
 
@@ -274,13 +276,38 @@ def handle_common_parameters(params):
     return res
 
 
+def conv_val(key, val):
+    """Perform conversion on an option specifier to support case insensitivity."""
+    if key == "choices":
+        # Get all lowercase/uppercase combination of all values
+        allowed_values = []
+        # For user readability put first the original values
+        for value in val:
+            allowed_values.append(value)
+        # Then add all uppercase/lowercase combinations
+        for value in val:
+            for items in itertools.product(*zip(value.upper(), value.lower())):
+                newval = "".join(items)
+                if newval not in allowed_values:
+                    allowed_values.append(newval)
+        return allowed_values
+    if isinstance(val, dict):
+        return conv_specs(val)
+    return val
+
+
+def conv_specs(spec):
+    """Perform conversion on option specifier to support case insensitivity."""
+    return { key:conv_val(key, val) for key,val in spec.items() }
+
+
 def run_module():
     """Module core function."""
 
     # define available arguments/parameters a user can pass to the module
     module_args = {
         'ds389': { 'type':'dict', 'required':False,
-                   'options': { **COMMON_OPTIONS, **CONTENT_OPTIONS }, },
+                   'options': { **COMMON_OPTIONS, **conv_specs(CONTENT_OPTIONS) }, },
         'ds389info': { 'type':'dict', 'required':False,
                    'options': COMMON_OPTIONS, },
     }

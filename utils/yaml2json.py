@@ -64,7 +64,6 @@ F_IN_NAME = sys.argv[1]
 F_OUT_NAME = F_IN_NAME.replace('.yml','') + '.json'
 with open(F_IN_NAME, 'r', encoding='utf-8') as f_in:
     data = yaml.safe_load(f_in)
-    print(f'data: {data}')
     with open(F_OUT_NAME, 'w', encoding='utf-8') as f_out:
         f_out.write(json.dumps(data, cls=MyJsonEncoder))
 print(f'{sys.argv[0]}: created {F_OUT_NAME} file.')

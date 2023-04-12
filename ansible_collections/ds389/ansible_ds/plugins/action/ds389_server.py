@@ -66,6 +66,118 @@ requirements:
     - python >= 3.9
 '''
 
+class VariableHandler:
+    """This class handles variables and merge/append requests."""
+
+    def __init__(self, hostargs):
+        self.vars = {}  # the variable full doted name
+        self.hostargs = hostargs
+
+    def register_vars(self, name, val, nameprefix):
+        """Recursively compute all parameter fullnames and makes all keys lowercase ."""
+
+        self.vars[f'{nameprefix}{name}'] = val
+        try:
+            dictlist = isinstance(val[0], dict)
+        except (KeyError, TypeError, IndexError):
+            dictlist = False
+        if dictlist:
+            for item in val:
+                # Recurse on named dict
+                if 'name' in item:
+                    self.register_vars(item['name'], item, nameprefix)
+        elif isinstance(val, dict):
+            nameprefix = f'{nameprefix}{name}.'
+            for (key,val2) in val.items():
+                if key != "name":
+                    self.register_vars(key, val2, nameprefix)
+
+    def add_empty_set(self, tgtname):
+        """This methods creates an empty set with the given target name."""
+        # first lets get the parent entry
+        vals = tgtname.rsplit(".",1)
+        if len(vals) == 2:
+            parentgt = vals[0]
+            oname = vals[1]
+            try:
+                parent = self.vars[parentgt]
+            except KeyError:
+                raise AnsibleError(f"Invalid target name {tgtname} : target parent does not exists.") from None
+        else:
+            parentgt = ""
+            parent = self.hostargs.args
+            oname = tgtname
+        if not isinstance(parent, dict):
+            raise AnsibleError(f"Invalid target name {tgtname} : target parent is not a dict.")
+        assert oname not in parent # Should have been tested by caller.
+        parent[oname] = []
+        self.vars[tgtname] = parent[oname]
+
+    def apply_merge_option(self, name, tgtname, option):
+        """Merge parameters value according to 'option'."""
+        try:
+            tgt = self.vars[tgtname]
+        except KeyError:
+            error_info = {
+                'option': option,
+                'host': self.hostargs.host,
+                'vars': self.vars.keys() }
+            _PH.log.error("Option %s:  %s attribute is not found in host %s.", name, tgtname, self.hostargs.host)
+            raise AnsibleError(f"Option {name}: {tgtname} attribute is not found in host {self.hostargs.host}.") from None
+        moption =  self.hostargs.eval_jinja2(option['merge'])
+        if not isinstance(moption, dict):
+            error_info = { 'option': option, 'merge_option': moption }
+            _PH.log.error("Option %s:  'merge' value type is '%s' instead of 'dict'. error_info=%s.", name, type(moption), error_info)
+            raise AnsibleError(f"Option {name}: 'merge' value type is '{type(moption)}' instead of 'dict'.")
+        if not isinstance(tgt, dict):
+            error_info = { 'option': option, 'target': tgt }
+            _PH.log.error("Option %s:  'merge' requires that target %s type is a 'dict' instead of '%s'. error_info=%s.", name, tgtname, type(tgt), error_info)
+            raise AnsibleError(f"Option {name}: 'merge' requires that target {tgtname} type is a 'dict' instead of '{type(tgt)}'.")
+        for key,val in moption.items():
+            tgt[key.lower()] = _PH.lower_key_dict(val)
+
+    def apply_append_option(self, name, tgtname, option):
+        """Append parameters value according to 'option'."""
+        try:
+            tgt = self.vars[tgtname]
+        except KeyError:
+            self.add_empty_set(tgtname)
+            tgt = self.vars[tgtname]
+        mappend =  self.hostargs.eval_jinja2(option['append'])
+        if not isinstance(mappend, list):
+            error_info = { 'option': option, 'append_option': mappend }
+            _PH.log.error("Option %s:  'append' value type is '%s' instead of 'list'. error_info=%s.", name, type(mappend), error_info)
+            raise AnsibleError(f"Option {name}: 'append' value type is '{type(mappend)}' instead of 'list'.")
+        if not isinstance(tgt, list):
+            error_info = { 'option': option, 'target': tgt }
+            _PH.log.error("Option %s:  'append' requires that target %s type is a 'list' instead of '%s'. error_info=%s.", name, tgtname, type(tgt), error_info)
+            raise AnsibleError(f"Option {name}: 'append' requires that target {tgtname} type is a 'list' instead of '{type(tgt)}'.")
+        for val in mappend:
+            tgt.append(_PH.lower_key_dict(val))
+
+    def apply_option(self, name, option):
+        """Append/Merge parameters value according to 'option'."""
+        try:
+            tgtname = option['name'].lower()
+        except TypeError:
+            raise AnsibleError(f"Option {name} value type is '{type(option)}' instead of 'dict'.") from None
+        except KeyError:
+            raise AnsibleError(f"Option {name}: name attribute is missing.") from None
+        if 'merge' in option:
+            self.apply_merge_option(name, tgtname, option)
+        elif 'append' in option:
+            self.apply_append_option(name, tgtname, option)
+        else:
+            raise AnsibleError(f"Option {name}:  requires either an 'merge' or an 'append' member.")
+
+    def apply_option_list(self, name, option):
+        """Append/Merge parameters value according to 'option' items."""
+        if isinstance(option, list) and not isinstance(option, str):
+            for item in option:
+                self.apply_option(name, item)
+        else:
+            self.apply_option(name, option)
+
 
 class _PH:
     """ This class handles the module parameters."""
@@ -84,10 +196,11 @@ class _PH:
     # The usefull keys from invemtory (keys starting with ds389_ are handled dynamically).
     INVENTORY_KEYS = ( 'ansible_verbosity', 'ansible_host', 'ansible_check_mode', 'hostvars' )
 
-    HIDDEN_ARGS = ( 'userpassword', 'rootpw', 'ReplicationManagerPassword'.lower() )
+    HIDDEN_ARGS = ( 'userpassword', 'rootpw', 'ReplicaCredentials'.lower() )
 
     log = logging.getLogger('ds389_server')
     log.setLevel(logging.INFO)
+
 
     @staticmethod
     def target_match(varname, target):
@@ -176,7 +289,7 @@ class _PH:
         self.args = {}
         self.host = hostname
         self.module = module
-        self.vars = {}
+        self.vars = VariableHandler(self)
         self.from_inventory = True
         self.debug = debuglvl
         self.replbes = None # Replica backends
@@ -198,7 +311,7 @@ class _PH:
             _PH.log.addHandler(logh)
 
     def __str__(self):
-        return f'_PH(args={self.args}, host={self.host}, vars={self.vars})'
+        return f'_PH(args={self.args}, host={self.host}, vars={self.vars.vars})'
 
     def eval_jinja2(self, expr):
         """Evaluate Jinja2 expression."""
@@ -213,75 +326,6 @@ class _PH:
                 _PH.log.debug('add_keys %s ==> %s', key, source[key])
                 self.args[key.lower()] = _PH.lower_key_dict(source[key])
 
-    def register_vars(self, name, val, nameprefix):
-        """Recursively compute all parameter fullnames and makes all keys lowercase ."""
-
-        self.vars[f'{nameprefix}{name}'] = val
-        try:
-            dictlist = isinstance(val[0], dict)
-        except (KeyError, TypeError, IndexError):
-            dictlist = False
-        if dictlist:
-            for item in val:
-                # Recurse on named dict
-                if 'name' in item:
-                    self.register_vars(item['name'], item, nameprefix)
-        elif isinstance(val, dict):
-            nameprefix = f'{nameprefix}{name}.'
-            for (key,val2) in val.items():
-                if key != "name":
-                    self.register_vars(key, val2, nameprefix)
-
-    def apply_option(self, name, option):
-        """Append/Merge parameters value according to 'option'."""
-        try:
-            tgtname = option['name'].lower()
-        except TypeError as exc:
-            raise AnsibleError(f"Option {name} value type is '{type(option)}' instead of 'dict'.") from exc
-        except KeyError:
-            raise AnsibleError(f"Option {name}: name attribute is missing.") from exc
-        try:
-            tgt = self.vars[tgtname]
-        except KeyError as exc:
-            error_info = {
-                'option': option,
-                'host': self.host,
-                'vars': self.vars.keys() }
-            _PH.log.error("Option %s:  %s attribute is not found in host %s.", name, tgtname, self.host)
-            raise AnsibleError(f"Option {name}: {tgtname} attribute is not found in host {self.host}.") from exc
-        if 'merge' in option:
-            moption =  self.eval_jinja2(option['merge'])
-            if not isinstance(moption, dict):
-                error_info = { 'option': option, 'merge_option': moption }
-                _PH.log.error("Option %s:  'merge' value type is '%s' instead of 'dict'. error_info=%s.", name, type(moption), error_info)
-                raise AnsibleError(f"Option {name}: 'merge' value type is '{type(moption)}' instead of 'dict'.")
-            if not isinstance(tgt, dict):
-                error_info = { 'option': option, 'target': tgt }
-                _PH.log.error("Option %s:  'merge' requires that target %s type is a 'dict' instead of '%s'. error_info=%s.", name, tgtname, type(tgt), error_info)
-                raise AnsibleError(f"Option {name}: 'merge' requires that target {tgtname} type is a 'dict' instead of '{type(tgt)}'.")
-            for key,val in moption.items():
-                tgt[key.lower()] = _PH.lower_key_dict(val)
-        elif 'append' in option:
-            mappend =  self.eval_jinja2(option['append'])
-            if isinstance(mappend, str) or not isinstance(mappend, list):
-                error_info = { 'option': option, 'append_option': mappend }
-                _PH.log.error("Option %s:  'append' value type is '%s' instead of 'list'. error_info=%s.", name, type(mappend), error_info)
-                raise AnsibleError(f"Option {name}: 'append' value type is '{type(mappend)}' instead of 'list'.")
-            if not isinstance(tgt, list):
-                error_info = { 'option': option, 'target': tgt }
-                _PH.log.error("Option %s:  'append' requires that target %s type is a 'list' instead of '%s'. error_info=%s.", name, tgtname, type(tgt), error_info)
-                raise AnsibleError(f"Option {name}: 'append' requires that target {tgtname} type is a 'list' instead of '{type(tgt)}'.")
-            for val in mappend:
-                tgt.append(_PH.lower_key_dict(val))
-
-    def apply_option_list(self, name, option):
-        """Append/Merge parameters value according to 'option' items."""
-        if isinstance(option, list) and not isinstance(option, str):
-            for item in option:
-                self.apply_option(name, item)
-        else:
-            self.apply_option(name, option)
-
     def resolve_agmt(self, agmt, agmtlist, bedict):
         """Merge the backend values with the agreement according to the target."""
 
@@ -291,6 +335,7 @@ class _PH:
                 _PH.log.debug("Found target backend %s for agmt %s", befn, agmt)
                 found = True
                 ragmt = { **agmt, **bedata }
+                ragmt['fulltargetname'] = befn
                 # Remove children list of dicts
                 ragmt.pop('indexes', None)
                 ragmt.pop('agmts', None)
@@ -309,14 +354,14 @@ class _PH:
         for key in self.args.keys():
             self.args[key] = self.eval_jinja2(self.args[key])
             # Register parameters according to their full name
-            self.register_vars(key, self.args[key], "")
+            self.vars.register_vars(key, self.args[key], "")
 
         if self.from_inventory:
             # Then apply option_* changes
             options = sorted((key for key in varsdict.keys() if key.startswith("ds389_option_") ))
             for option in options:
                 calling_args[option] = deepcopy(varsdict[option])
-                self.apply_option_list(option, calling_args[option])
+                self.vars.apply_option_list(option, calling_args[option])
 
     def get_backends(self, hosts):
         """Get a dict of all replicated backends that have same suffix
@@ -326,7 +371,7 @@ class _PH:
         res = {}
         # Get all replicated backends
         for (host, hostargs) in hosts.items():
-            for (varname, var) in hostargs.vars.items():
+            for (varname, var) in hostargs.vars.vars.items():
                 if isinstance(var, dict) and _PH.REPLICATED in var:
                     if 'suffix' in var:
                         res[f'{host}.{varname}'] = var
@@ -340,7 +385,7 @@ class _PH:
         """Main parameter processing code on plugin side."""
 
         self.add_debug_info(5, "inventory", _PH.get_safe_inventory(task_vars))
-        self.add_debug_info(5, "args.vars", self.vars)
+        self.add_debug_info(5, "args.vars", self.vars.vars)
         # module_args is overwritten later on with safe values
         # but lets have the full value in case of exception
         # Eval Jinja2 expression and register variable by full names
