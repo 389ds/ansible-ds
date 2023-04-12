@@ -207,7 +207,7 @@ class Option:
         if isinstance(val, str):
             return val.lower()
         if isinstance(val, tuple):
-            return (Option.lower(elmt) for elmt in val)
+            return tuple(Option.lower(elmt) for elmt in val)
         if isinstance(val, list):
             return [ Option.lower(elmt) for elmt in val ]
         return val
@@ -1161,14 +1161,6 @@ class ConfigBackend(MyConfigObject):
             errmsg = f"Option 'ReplicaBindDn' is missing in {cfginst.name}.{self.name} on host {ROOT_ENTITY}"
             get_log().debug(f'update_replman: {errmsg}')
             return
-        # Check if we can use that dn
-        match = re.fullmatch('cn=([^,]*),(([^,]*,)*cn=config)', adn)
-        if not match:
-            get_log().debug(f'update_replman: Unable to handle dn {adn}')
-            return
-        # extract cn and basedn
-        acn = match.group(1)
-        basedn = match.group(2)
         # Get the password
         try:
             apw = self.replicacredentials
@@ -1189,6 +1181,13 @@ class ConfigBackend(MyConfigObject):
                 get_log().debug(f'Updating password on entry {adn}')
                 account.reset_password(apw)
             return
+        # Check if we can use that dn
+        match = re.fullmatch('cn=([^,]*),(([^,]*,)*cn=config)', adn)
+        if not match:
+            raise AttributeError(f'Replication bind dn {adn} account does not exists.')
+        # extract cn and basedn
+        acn = match.group(1)
+        basedn = match.group(2)
         # Entry does not exist ==> Create it.
         self.add_change(f'Adding entry {adn}')
         if not onlycheck:
@@ -1199,6 +1198,7 @@ class ConfigBackend(MyConfigObject):
                 'userpassword': apw,
             }
             account.create(rdn=f'cn={acn}', properties=properties, basedn=basedn)
+            assert account.exists()
 
     def get_repl_role(self, val):
         """Get info about replica role."""
@@ -1446,7 +1446,7 @@ class ConfigDs389Agmt(MyConfigObject):
         val = entry.getSingleValue('description')
         if val:
             option = 'fulltargetname'
-            get_log().debug("{hlog} option:{option} val:{val}")
+            get_log().debug(f"{hlog} option:{option} val:{val}")
             setattr(self, option, val)
         for option in backend.OPTIONS:
             if isinstance(option, AgmtTgtOption) or option in ConfigBackend.REPLICA_MANAGER_OPTIONS:

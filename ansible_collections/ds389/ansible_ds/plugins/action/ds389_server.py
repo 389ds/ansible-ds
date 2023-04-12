@@ -144,7 +144,7 @@ class VariableHandler:
             self.add_empty_set(tgtname)
             tgt = self.vars[tgtname]
         mappend =  self.hostargs.eval_jinja2(option['append'])
-        if isinstance(mappend, str) or not isinstance(mappend, list):
+        if not isinstance(mappend, list):
             error_info = { 'option': option, 'append_option': mappend }
             _PH.log.error("Option %s:  'append' value type is '%s' instead of 'list'. error_info=%s.", name, type(mappend), error_info)
             raise AnsibleError(f"Option {name}: 'append' value type is '{type(mappend)}' instead of 'list'.")
