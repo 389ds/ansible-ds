@@ -445,8 +445,14 @@ class AnsibleTest:
         prefix = _the_env.get("PREFIX", "")
         pattern = f'{prefix}/etc/dirsrv/slapd-*'
         for inst in [ elmt.rsplit('/',1)[1] for elmt in glob.glob(pattern) ]:
-            shutil.copytree(f'{prefix}/etc/dirsrv/var/log/dirsrv/{inst}', f'{artefact_root}/{inst}')
-            shutil.copyfile(f'{prefix}/etc/dirsrv/{inst}/dse.ldif', f'{artefact_root}/{inst}/dse.ldif')
+            try:
+                shutil.copytree(f'{prefix}/etc/dirsrv/var/log/dirsrv/{inst}', f'{artefact_root}/{inst}')
+            except FileNotFoundError:
+                pass
+            try:
+                shutil.copyfile(f'{prefix}/etc/dirsrv/{inst}/dse.ldif', f'{artefact_root}/{inst}/dse.ldif')
+            except FileNotFoundError:
+                pass
 
     # pylint: disable-next=R0201
     def lookup(self, obj, name):

@@ -143,8 +143,8 @@ class _StateTestHandler(ABC):
     def get_args(self):
         """Get ds389_server initial options."""
         return {
-            "ds389_agmts": [ self._get_ds389_agmt_args(idx) for idx in self.get_range(1)],
-            "ds389_server_instances": [ self._get_instance_args(idx) for idx in self.get_range(2)],
+            "ds389_agmts": [ self._get_ds389_agmt_args(idx) for idx in self.get_range(0)],
+            "ds389_server_instances": [ self._get_instance_args(idx) for idx in self.get_range(1)],
             "ansible_check_mode": False,
             "ansible_verbosity": VERBOSITY
         }
@@ -347,8 +347,8 @@ class _PresentHandler(_StateTestHandler):
 
     def run(self, action):
         self.log.info(f"Run ds389_server module {action['msg']}")
-        self.step = action['step']
         self.reset_parameters()
+        self.log.debug(f"RUN ACTION: step={self.step} args={self.args}")
         result = self.ansibletest.run_test_module( self.args )
         self.verify_entities(result, action['msg'])
 
@@ -434,23 +434,25 @@ class _UpdatedHandler(_StateTestHandler):
         {
             'msg': 'after removing a backend',
             'avas': [('name', 'be202'), ],
-            'removed': [ 'a1_be2_inst2', 'be202',
+            'removed': [ 'a1_be2_inst2', 'a3_be2_inst2', 'be202',
                          'index1_be202', 'index2_be202',
-                         'ds389_agmt_be202_localhost.inst5.be503',],
+                         'ds389_agmt_be202_localhost.inst5.be502'],
         },
         {
             'msg': 'after removing an instance',
             'avas': [('name', 'inst2'), ],
             'removed': [ 'a1_be1_inst2', 'a2_be1_inst2', 'a3_be1_inst2',
-                         'be201',
+                         'a1_be3_inst2', 'a2_be3_inst2', 'a3_be3_inst2',
+                         'be201', 'be203',
                          'ds389_agmt_be201_localhost.inst5.be501',
                          'index1_be201', 'index2_be201', 'index3_be201',
+                         'index1_be203', 'index2_be203', 'index3_be203',
                          'inst2', ],
         },
         {
             'msg': 'after marking a ds389_agmt as absent',
             'avas': [('fulltargetname', 'localhost.inst5.be502')],
-            'removed': [ 'ds389_agmt_be103_localhost.inst5.be502', ],
+            'removed': [ 'ds389_agmt_be102_localhost.inst5.be502', ],
         },
     ]
 

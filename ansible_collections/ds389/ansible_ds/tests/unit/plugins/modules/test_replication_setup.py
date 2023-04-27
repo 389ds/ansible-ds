@@ -19,8 +19,7 @@
 import os
 import sys
 
-# Set PYTHONPATH to be able to find lib389 in PREFIX install
-# (computed within conftest seesion initialization hook)
+from socket import gethostname
 from ldap import LDAPError
 from lib389 import DirSrv
 from lib389.properties import SER_SERVERID_PROP
@@ -34,6 +33,7 @@ from lib389.idm.domain import Domain
 DIRECTORY_MANAGER_PASSWORD = "secret12"
 REPLICATION_MANAGER_PASSWORD = "secret34"
 SUFFIX = "dc=example,dc=com"
+HOSTNAME = gethostname()
 
 if "DEBUGGING" in os.environ:
     VERBOSITY = 5
@@ -51,7 +51,7 @@ MODULE_ARGS = {
                     "target": "supplier2",
                     "replicabindmethod": "simple",
                     "replicacredentials": REPLICATION_MANAGER_PASSWORD,
-                    "replicahost": "linux.home",
+                    "replicahost": HOSTNAME,
                     "replicaport": "5556",
                     "replicatransportinfo": "ldap",
                     "replicabinddn": "cn=replmgr,cn=config",
@@ -74,7 +74,7 @@ MODULE_ARGS = {
                                     "replicabinddn": "cn=replmgr,cn=config",
                                     "replicabindmethod": "simple",
                                     "replicacredentials": REPLICATION_MANAGER_PASSWORD,
-                                    "replicahost": "linux.home",
+                                    "replicahost": HOSTNAME,
                                     "replicaport": "5555",
                                     "replicatransportinfo": "ldap",
                                     "name": "m2m1"
@@ -97,7 +97,7 @@ MODULE_ARGS = {
                             "replicabinddn": "cn=replmgr,cn=config",
                             "replicabindmethod": "simple",
                             "replicacredentials": REPLICATION_MANAGER_PASSWORD,
-                            "replicahost": "linux.home",
+                            "replicahost": HOSTNAME,
                             "replicaid": "1",
                             "replicaport": "5556",
                             "replicarole": "supplier",
@@ -218,4 +218,5 @@ def test_ds389_create_with_replication_is_idempotent(ansibletest):
         raise exc
     finally:
         # Step 10: Perform cleanup
-        cleanup(instances)
+        # cleanup(instances)
+        pass

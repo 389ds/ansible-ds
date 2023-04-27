@@ -289,7 +289,6 @@ options:
         type: str
         choices:
            - present
-           - updated
            - absent
       backup_dir:
         description: Directory containing the backup files.
