@@ -518,7 +518,7 @@ def test_states(ansibletest, testname):
         action_handler.end_test()
         assert action_handler.ok
     except ( AssertionError, ldap.LDAPError ) as exc:
-        action_handler.ansibletest.save_artefacts()
+        ansibletest.save_artefacts()
         raise exc
     finally:
         # Step 10: Perform cleanup

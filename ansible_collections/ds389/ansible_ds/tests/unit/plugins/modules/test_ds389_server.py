@@ -126,7 +126,7 @@ def test_ds289_remove_all(ansibletest, topo_s2):
     log = ansibletest.get_log(__name__)
     # Step 1: Ensure that instances exist
     for inst in topo_s2:
-        assert inst.exists()
+        assert inst.exists(), f"Instance {inst} does not exist at the beginning of the test"
     # Step 2: Run ds389_server module
     args = { "ds389" : { "state": "absent", **common_args }  }
     result = ansibletest.run_test_module( { "ANSIBLE_MODULE_ARGS": args } )
