@@ -336,7 +336,6 @@ CONTENT_OPTIONS = {
                 'type': 'str',
                 'choices': (
                     'present',
-                    'updated',
                     'absent',
                 ),
             },

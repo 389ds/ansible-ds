@@ -1,0 +1,6 @@
+Theses test are testing ds389_module.py 
+to get debug information both from pytest and from the module, you may want to run:
+DEBUGGING=1 pytest -vvvvv $PWD  2>&1 | tee o
+or for a single test case:
+DEBUGGING=1 pytest -vvvvv $PWD  -k test_change_replica_id  2>&1 | tee o
+
