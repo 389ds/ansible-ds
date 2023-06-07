@@ -1,6 +1,10 @@
 name: Ansible lint
 on: [push, pull_request]
 
+permissions: 
+  contents: read
+  actions: read
+
 jobs:
   ansible_lint:
     runs-on: ubuntu-latest
