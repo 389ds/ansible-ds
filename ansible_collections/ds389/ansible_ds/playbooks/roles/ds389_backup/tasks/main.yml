@@ -49,12 +49,12 @@
         ls -1
       args:
         chdir: "{{ ds389_backup_dir }}/"
-      register: result_backup_find_backup_files
+      register: ds389_backup_find_backup_files_result
       changed_when: false
 
     - name: Set ds389_backup_names using backup list
       ansible.builtin.set_fact:
-        ds389_backup_names: "{{ result_backup_find_backup_files.stdout_lines }}"
+        ds389_backup_names: "{{ ds389_backup_find_backup_files_result.stdout_lines }}"
 
 - name: Set ds389_backup_names from ds389_backup_name
   when: ds389_backup_names is not defined and ds389_backup_name is defined

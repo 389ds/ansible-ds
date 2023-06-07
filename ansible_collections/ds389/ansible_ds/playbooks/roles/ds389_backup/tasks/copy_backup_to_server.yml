@@ -17,14 +17,14 @@
 - name: Stat backup to copy
   ansible.builtin.stat:
     path: "{{ ds389_backup_controller_dir }}/{{ ds389_backup_archive_path }}"
-  register: result_backup_stat
+  register: ds389_backup_stat_result
   delegate_to: localhost
   become: false
 
 - name: Fail on missing backup to copy
   ansible.builtin.fail:
     msg: "Unable to find backup {{ ds389_backup_archive_path }}"
-  when: result_backup_stat.stat.isdir is not defined
+  when: ds389_backup_stat_result.stat.isdir is not defined
 
 - name: Get DS backup dir
   ansible.builtin.import_tasks: "{{ role_path }}/tasks/get_ds389_backup_dir.yml"

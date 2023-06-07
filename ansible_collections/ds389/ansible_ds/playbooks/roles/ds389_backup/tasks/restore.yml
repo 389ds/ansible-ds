@@ -5,12 +5,12 @@
 - name: Stat backup on server
   ansible.builtin.stat:
     path: "{{ ds389_backup_dir }}/{{ ds389_backup_item }}"
-  register: result_backup_stat
+  register: ds389_backup_stat_result
 
 - name: Fail on missing backup directory
   ansible.builtin.fail:
     msg: "Unable to find backup {{ ds389_backup_item }}"
-  when: result_backup_stat.stat.isdir is not defined
+  when: ds389_backup_stat_result.stat.isdir is not defined
 
 - name: Stop DS instance, if started
   ansible.builtin.service:
@@ -24,11 +24,11 @@
       - localhost
       - bak2db
       - "{{ ds389_backup_item }}"
-  register: result_dsrestore
+  register: ds389_backup_dsrestore_result
   ignore_errors: true
 
 - name: Report error for restore operation
   ansible.builtin.debug:
-    msg: "{{ result_dsrestore.stderr }}"
-  when: result_dsrestore is failed
+    msg: "{{ ds389_backup_dsrestore_result.stderr }}"
+  when: ds389_backup_dsrestore_result is failed
   failed_when: true

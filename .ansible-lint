@@ -3,7 +3,8 @@ exclude_paths:
   - .github/
   - .pylintrc
   - utils/
-  - '*/testds389_vault.yaml'
+  - ansible_collections/ds389/ansible_ds/tests/inventory/basic/inventory/testds389_vault.yaml
+  - ansible_collections/ds389/ansible_ds/tests/inventory/replication/inventory/testds389_vault.yaml
 
 parseable: true
 quiet: false
