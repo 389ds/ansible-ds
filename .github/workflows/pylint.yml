@@ -1,6 +1,10 @@
 name: Python lint
 on: [push, pull_request]
 
+permissions: 
+  contents: read
+  actions: read
+
 jobs:
   python_lint:
     runs-on: ubuntu-latest
