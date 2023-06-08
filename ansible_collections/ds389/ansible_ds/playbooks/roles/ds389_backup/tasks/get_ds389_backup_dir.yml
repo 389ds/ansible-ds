@@ -5,9 +5,9 @@
     stdin: |
       from lib389.paths import Paths
       print(Paths("localhost").backup_dir)
-  register: result_lib389_backup_dir
+  register: ds389_backup_dir_result
   changed_when: false
 
 - name: Set DS backup dir
   ansible.builtin.set_fact:
-    ds389_backup_dir: "{{ result_lib389_backup_dir.stdout_lines | first }}"
+    ds389_backup_dir: "{{ ds389_backup_dir_result.stdout_lines | first }}"

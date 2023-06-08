@@ -15,14 +15,14 @@
     localhost
     db2bak
     {{ ds389_backup_archive_path }}
-  register: result_ds389_backup
+  register: ds389_backup_result
 
 - name: Fail to backup the instance
   ansible.builtin.fail:
     msg: "Failed to backup the instance"
   when: item.find("db2bak successful") < 0
   with_items:
-    - "{{ result_ds389_backup.stdout }}"
+    - "{{ ds389_backup_result.stdout }}"
 
 - name: Start DS instance, if started
   ansible.builtin.service:
